@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import time
 import threading
+import secrets
 from pathlib import Path
 
 import httpx
@@ -25,6 +26,16 @@ CHARS_PER_TOKEN = 4
 
 _lock = threading.Lock()
 _running = False
+_last_error: str | None = None
+
+
+def _random_prefix() -> str:
+    """Return a random prefix to defeat response caching between runs.
+
+    Without it, an identical prompt lets the server reuse cached KV blocks,
+    which inflates prefill tok/s on repeat probes.
+    """
+    return secrets.token_urlsafe(24)
 
 
 def _filler(prompt_tokens: int) -> str:
@@ -49,6 +60,7 @@ def probe_one(
     model_id: str,
     api_key: str,
     context_tokens: int,
+    prefix: str | None = None,
 ) -> dict:
     """Run a single streaming probe for one context size.
 
@@ -60,7 +72,8 @@ def probe_one(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    prompt = _filler(context_tokens)
+    prompt = _random_prefix() if prefix is None else prefix
+    prompt += _filler(context_tokens)
     payload = {
         "model": model_id,
         "messages": [{"role": "user", "content": prompt}],
@@ -72,7 +85,9 @@ def probe_one(
     start = time.perf_counter()
     first_token_time = None
     usage = None
-    out_tokens = 0
+    out_tokens = None
+
+    import json
 
     with httpx.stream("POST", url, json=payload, headers=headers, timeout=600.0) as resp:
         resp.raise_for_status()
@@ -84,8 +99,6 @@ def probe_one(
             if line.startswith("data: "):
                 chunk = line[len("data: "):]
                 try:
-                    import json
-
                     data = json.loads(chunk)
                 except ValueError:
                     continue
@@ -112,7 +125,8 @@ def probe_one(
     if usage is not None and usage.get("completion_tokens") is not None:
         out_tokens = usage["completion_tokens"]
     else:
-        out_tokens = round(context_tokens / CHARS_PER_TOKEN)
+        # No usage reported: report unknown rather than fabricate a number.
+        out_tokens = None
 
     gen_tps = (out_tokens / gen_seconds) if (gen_seconds and gen_seconds > 0) else None
 
@@ -127,7 +141,11 @@ def probe_one(
 
 
 def run_probe(models: list[dict], context_sizes: list[int] | None = None) -> list[dict]:
-    """Probe all models serially. Returns list of probe results."""
+    """Probe all models serially. Returns list of probe results.
+
+    Each result's ``model`` field is the config name (``model['name']``), not
+    the request model_id, so it matches the runs table and the UI picker.
+    """
     sizes = context_sizes or DEFAULT_CONTEXT_SIZES
     results = []
     for model in models:
@@ -136,23 +154,37 @@ def run_probe(models: list[dict], context_sizes: list[int] | None = None) -> lis
             result = probe_one(
                 model["base_url"], model["model_id"], api_key, ctx
             )
+            result["model"] = model["name"]
             result["ts"] = time.strftime("%Y-%m-%dT%H:%M:%S")
             results.append(result)
     return results
 
+
+def is_running() -> bool:
+    """Return True if a probe is currently running."""
+    return _running
+
+
+def last_error() -> str | None:
+    """Return the error from the most recent probe, or None."""
+    return _last_error
 
 
 def start_probe() -> bool:
     """Run the probe for all configured models in a background thread.
 
     Returns True if a probe was started, False if one is already running.
+    Any error in the probe is captured and exposed via last_error(); it is
+    not swallowed.
     """
-    global _running
+    global _running, _last_error
     if not _lock.acquire(blocking=False):
         return False
     _running = True
+    _last_error = None
 
     def _worker():
+        global _running, _last_error
         try:
             from config import DB_PATH, MODELS
             import db
@@ -178,8 +210,9 @@ def start_probe() -> bool:
                 conn.commit()
             finally:
                 db.close(conn)
+        except Exception as exc:  # noqa: BLE001 - surface, don't swallow
+            _last_error = f"{type(exc).__name__}: {exc}"
         finally:
-            global _running
             _running = False
             _lock.release()
 

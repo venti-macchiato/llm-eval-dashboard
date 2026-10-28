@@ -198,11 +198,36 @@ def test_static_files_served(client):
     assert resp.text
 
 
-def test_ingest_endpoint(client, monkeypatch):
-    # Point at the real sample_logs to test ingest returns a count.
-    monkeypatch.setattr("config.LOGS_DIR", "sample_logs")
+def test_ingest_endpoint(client, monkeypatch, tmp_path):
+    # Write synthetic logs to a temp dir and point LOGS_DIR there.
+    from inspect_ai.log import (
+        EvalConfig, EvalDataset, EvalLog, EvalMetric, EvalResults,
+        EvalScore, EvalSpec, EvalStats, write_eval_log,
+    )
+    from datetime import datetime
+    root = tmp_path / "logs"
+    root.mkdir()
+    created = datetime.now()
+    spec = EvalSpec(
+        eval_id="run_a_math_polystrata", run_id="x", created=created.isoformat(),
+        task="math", task_id="math", task_version=1, task_display_name="math",
+        model="openai/tiel-coder-35b-a3b-ud-q3_k_xl",
+        dataset=EvalDataset(name="math-bench", samples=100),
+        config=EvalConfig(token_limit=128000),
+    )
+    score = EvalScore(name="score", scorer="accuracy", reducer="mean",
+                      metrics={"accuracy": EvalMetric(name="accuracy", value=0.72)})
+    log = EvalLog(version=1, status="success", eval=spec,
+                  results=EvalResults(total_samples=100, completed_samples=100,
+                                      scores=[score]),
+                  stats=EvalStats(started_at=created.isoformat(),
+                                  completed_at=created.isoformat()))
+    log.location = str(root / "run_a_math_polystrata.eval")
+    write_eval_log(log, format="eval")
+    monkeypatch.setattr("config.LOGS_DIR", str(root))
     resp = client.post("/api/ingest")
     assert resp.status_code == 200
     body = resp.json()
     assert "new" in body
     assert isinstance(body["new"], int)
+

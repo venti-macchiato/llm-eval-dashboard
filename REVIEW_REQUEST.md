@@ -17,8 +17,8 @@ Requesting a review of the completed dashboard. All phases done; full suite 24 p
    assignment, and table sorting. Live-verified to load but not exercised in
    browser; chart color cycling and empty-state toggling are worth a manual look.
 
-4. **Startup schema init** (`api.py::_init_db`) — added so queries work before the
-   first ingest. Confirm this is the right place vs. a lifespan handler.
+4. **Startup schema init** (`api.py::_lifespan`) — added so queries work before the
+   first ingest. Confirm this is the right place vs. an `@app.on_event` handler.
 
 ## Known gaps
 

@@ -24,7 +24,7 @@ API plus a single-page frontend (vanilla JS + Chart.js, no build step).
 config.yaml          Fixed contract: logs_dir, db_path, inspect_view_url, models
 config.py            Loads config.yaml into importable constants
 db.py                connect(), init_schema(), close()
-ingest.py            ingest(logs_dir, db_path) -> int
+ingest.py            ingest(logs_dir, db_path) -> {"new": n, "skipped": s}
 speed.py             Streaming speed probe + background start_probe()
 api.py               FastAPI app; all endpoints
 static/index.html    Single page
@@ -55,13 +55,17 @@ db_path: bench.db
 inspect_view_url: ""
 models:
 - name: polystrata-q3
+  inspect_model: openai/tiel-coder-35b-a3b-ud-q3_k_xl
   base_url: http://100.112.119.2:8080/v1
   model_id: tiel-coder-35b-a3b-ud-q3_k_xl
-  api_key_file: ~/.config/strata/key
+  api_key_file: ~/.strata/key
 ```
 
-`api_key_file` must contain the raw key for the model's endpoint. It is read at
-probe time and never printed or logged.
+`inspect_model` maps each model to the string inspect_ai recorded in its logs
+so the runs table stores the config `name` (used by the picker and filters),
+not the raw inspect string. `api_key_file` must contain the raw key for the
+model's endpoint; it is read at probe time and never printed or logged.
+
 
 ## Running
 
@@ -83,10 +87,11 @@ All endpoints are JSON, read-only except where noted.
 | GET | `/api/runs?model=&task=&limit=200` | Accuracy runs. |
 | GET | `/api/latest?models=a,b` | Latest score per (model, task) with `prev_score`. |
 | GET | `/api/trend?model=&task=` | Score history, oldest first. |
-| GET | `/api/speed?model=` | Speed rows, oldest first. |
-| POST | `/api/ingest` | Ingest logs. Returns `{"new": n}`. |
+| GET | `/api/speed?model=&limit=10000` | Speed rows, oldest first. |
+| POST | `/api/ingest` | Ingest logs. Returns `{"new": n, "skipped": s}`. |
 | POST | `/api/speed/run` | Start the background speed probe. Returns `{"started": b}`. |
-| GET | `/`, `/static/*` | Frontend and static assets. |
+| GET | `/api/speed/status` | Probe status: `{"running": bool, "error": str|null}`. |
+
 
 ## Tests
 
@@ -94,14 +99,18 @@ All endpoints are JSON, read-only except where noted.
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-- `tests/test_ingest.py` — ingestion semantics against a temp DB.
+- `tests/test_ingest.py` — ingestion semantics against synthetic logs written
+  to a temp dir (no committed sample data).
 - `tests/test_api.py` — every endpoint via FastAPI `TestClient`.
 - `tests/test_speed.py` — the probe against a fake local streaming server (never
   contacts the real endpoint).
 
 ## Notes
 
-- `sample_logs/` is generated sample data (see `make_logs.py`), not a test
-  fixture. Replace it with real Inspect logs or point `logs_dir` elsewhere.
-- The speed probe measures TTFT, prefill throughput, and generation throughput
-  across configurable context sizes.
+- The speed probe uses a random prompt prefix per run so repeat probes don't
+  report inflated prefill throughput from cached responses.
+- `out_tokens` is reported as null when the server returns no usage, rather
+  than a fabricated estimate.
+- Probe thread errors (missing key file, unreachable endpoint) are captured
+  and surfaced via `/api/speed/status`.
+

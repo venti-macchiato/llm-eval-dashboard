@@ -7,6 +7,7 @@ Static files are served from the static/ directory next to this module.
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse
@@ -20,15 +21,17 @@ import speed
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
-app = FastAPI(title="LLM Benchmark Dashboard")
 
-
-@app.on_event("startup")
-def _init_db():
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
     """Create the schema on startup so queries work before the first ingest."""
     conn = db.connect(config.DB_PATH)
     db.init_schema(conn)
     db.close(conn)
+    yield
+
+
+app = FastAPI(title="LLM Benchmark Dashboard", lifespan=_lifespan)
 
 
 def _query_db() -> db.Connection:
@@ -130,26 +133,37 @@ def trend(model: str, task: str):
 
 
 @app.get("/api/speed")
-def speed_data(model: str | None = Query(None)):
+def speed_data(
+    model: str | None = Query(None),
+    limit: int = Query(10000, ge=1, le=100000),
+):
     conn = _query_db()
     try:
+        sql = "SELECT * FROM speed"
+        params: list[object] = []
         if model:
-            rows = conn.execute(
-                "SELECT * FROM speed WHERE model = ? ORDER BY ts ASC", (model,)
-            ).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM speed ORDER BY ts ASC").fetchall()
+            sql += " WHERE model = ?"
+            params.append(model)
+        sql += " ORDER BY ts ASC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
     finally:
         db.close(conn)
+
+
+@app.get("/api/speed/status")
+def speed_status():
+    """Probe status: running flag and any captured error from the thread."""
+    return {"running": speed.is_running(), "error": speed.last_error()}
 
 
 @app.post("/api/ingest")
 def api_ingest():
     from config import DB_PATH, LOGS_DIR
 
-    new = ingest.ingest(LOGS_DIR, DB_PATH)
-    return {"new": new}
+    result = ingest.ingest(LOGS_DIR, DB_PATH)
+    return {"new": result["new"], "skipped": result["skipped"]}
 
 
 @app.post("/api/speed/run")
