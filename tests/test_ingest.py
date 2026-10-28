@@ -14,6 +14,26 @@ import db
 import ingest
 
 
+@pytest.fixture
+def model_config(monkeypatch):
+    """Inject the polystrata-q3 model mapping that config.yaml normally holds."""
+    import config
+
+    monkeypatch.setattr(
+        config,
+        "MODELS",
+        [
+            {
+                "name": "polystrata-q3",
+                "inspect_model": "openai/tiel-coder-35b-a3b-ud-q3_k_xl",
+                "base_url": "",
+                "model_id": "tiel-coder-35b-a3b-ud-q3_k_xl",
+                "api_key_file": "",
+            }
+        ],
+    )
+    return config
+
 def _write_logs(root, specs):
     """Write synthetic .eval logs to root. specs: list of (eval_id, task, model, score)."""
     from inspect_ai.log import (
@@ -74,7 +94,7 @@ def _logs_dir(tmp_path):
     return root
 
 
-def test_ingest_maps_model_names(tmp_path):
+def test_ingest_maps_model_names(tmp_path, model_config):
     """Model names in logs map to config names, not raw inspect strings."""
     db_path = tmp_path / "bench.db"
     result = ingest.ingest(str(_logs_dir(tmp_path)), db_path)
@@ -91,7 +111,7 @@ def test_ingest_maps_model_names(tmp_path):
         db.close(conn)
 
 
-def test_ingest_idempotent(tmp_path):
+def test_ingest_idempotent(tmp_path, model_config):
     db_path = tmp_path / "bench.db"
     result = ingest.ingest(str(_logs_dir(tmp_path)), db_path)
     assert result["new"] == 3
@@ -107,7 +127,7 @@ def test_ingest_empty_dir(tmp_path):
     assert result == {"new": 0, "skipped": 0}
 
 
-def test_ingest_unknown_model_skipped(tmp_path):
+def test_ingest_unknown_model_skipped(tmp_path, model_config):
     """A log whose model isn't in config is skipped, not inserted."""
     root = tmp_path / "logs"
     _write_logs(root, [

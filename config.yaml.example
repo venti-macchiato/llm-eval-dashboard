@@ -1,0 +1,27 @@
+# Copy this file to config.yaml and fill in the values.
+# config.yaml itself is gitignored (see .gitignore) so it never gets committed.
+#
+# Run `python setup.py` (or `python -m setup`) after cloning to copy this file
+# to config.yaml automatically. Then edit config.yaml with your real values.
+
+# Directory of inspect_ai .eval logs to ingest.
+logs_dir: "logs/"
+
+# SQLite database file.
+db_path: "bench.db"
+
+# Optional link to your inspect_ai view.
+inspect_view_url: ""
+
+# One or more models. Each model needs:
+#   name:         display name used in the dashboard and API filters
+#   inspect_model: the model string inspect_ai recorded in its logs
+#   base_url:     OpenAI-compatible endpoint (leave "" to skip the speed probe)
+#   model_id:     the id sent to the endpoint
+#   api_key_file: path to a file containing the raw API key (leave "" to skip)
+models:
+  - name: "your-model"
+    inspect_model: "your-model"
+    base_url: ""
+    model_id: "your-model"
+    api_key_file: ""

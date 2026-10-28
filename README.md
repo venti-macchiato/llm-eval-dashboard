@@ -21,7 +21,9 @@ API plus a single-page frontend (vanilla JS + Chart.js, no build step).
 ## Layout
 
 ```
-config.yaml          Fixed contract: logs_dir, db_path, inspect_view_url, models
+config.yaml          Local config (gitignored; holds secrets)
+config.yaml.example  Template with stubbed values (committed)
+setup.py             Copies config.yaml.example -> config.yaml if missing
 config.py            Loads config.yaml into importable constants
 db.py                connect(), init_schema(), close()
 ingest.py            ingest(logs_dir, db_path) -> {"new": n, "skipped": s}
@@ -42,24 +44,40 @@ python -m venv .venv
 pip install inspect-ai fastapi uvicorn httpx pytest pyyaml pandas pyarrow
 ```
 
+### Initialize config
+
+```sh
+python setup.py
+```
+
+This copies `config.yaml.example` to `config.yaml` the first time only — it
+never overwrites an existing `config.yaml`, so your values are safe. Then edit
+`config.yaml` with your real values (see below).
+
+`config.yaml` is gitignored (it holds secrets); `config.yaml.example` is the
+committed template.
+
 The API initializes the SQLite schema on startup, so no manual migration is
 needed. Logs are ingested at runtime (see below).
 
+
 ## Configuration
 
-Edit `config.yaml`:
+Edit `config.yaml` (created from `config.yaml.example` by `setup.py`). Replace the
+stubs below with your real values:
 
 ```yaml
-logs_dir: sample_logs
-db_path: bench.db
+logs_dir: "logs/"
+db_path: "bench.db"
 inspect_view_url: ""
 models:
-- name: polystrata-q3
-  inspect_model: openai/tiel-coder-35b-a3b-ud-q3_k_xl
-  base_url: http://100.112.119.2:8080/v1
-  model_id: tiel-coder-35b-a3b-ud-q3_k_xl
-  api_key_file: ~/.strata/key
+- name: "your-model"
+  inspect_model: "your-model"
+  base_url: ""
+  model_id: "your-model"
+  api_key_file: ""
 ```
+
 
 `inspect_model` maps each model to the string inspect_ai recorded in its logs
 so the runs table stores the config `name` (used by the picker and filters),

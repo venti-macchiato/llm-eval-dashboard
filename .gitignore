@@ -11,7 +11,9 @@ venv/
 
 # Local data
 bench.db
-*.log
+
+# Local config (contains secrets; use config.yaml.example as the template)
+config.yaml
 
 # OS
 .DS_Store

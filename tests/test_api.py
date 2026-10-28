@@ -45,6 +45,18 @@ def client(tmp_path, monkeypatch):
     db.close(conn)
 
     monkeypatch.setattr("config.DB_PATH", str(db_path))
+    monkeypatch.setattr(
+        "config.MODELS",
+        [
+            {
+                "name": "polystrata-q3",
+                "inspect_model": "openai/tiel-coder-35b-a3b-ud-q3_k_xl",
+                "base_url": "",
+                "model_id": "tiel-coder-35b-a3b-ud-q3_k_xl",
+                "api_key_file": "",
+            }
+        ],
+    )
     monkeypatch.setattr("config.LOGS_DIR", str(tmp_path / "no_logs"))
 
     with TestClient(api.app) as c:
