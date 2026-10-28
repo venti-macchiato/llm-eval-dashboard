@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM Eval Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="/static/vendor/chart.umd.min.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>LLM Eval Dashboard</h1>
+    <div class="actions">
+      <button id="btn-ingest" class="btn">Ingest logs</button>
+      <button id="btn-speed" class="btn">Run speed probe</button>
+    </div>
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+  </header>
+
+  <section class="controls">
+    <label>Models
+      <select id="model-picker" multiple size="4"></select>
+    </label>
+    <label>Tasks
+      <select id="task-picker" multiple size="4"></select>
+    </label>
+    <div class="hint">Hold Ctrl/Cmd to select multiple.</div>
+  </section>
+
+  <section id="cards" class="cards" aria-label="Latest scores"></section>
+
+  <section class="charts">
+    <div class="chart-card">
+      <h2>Accuracy trend</h2>
+      <div id="chart-trend" class="chart-wrap"><canvas id="trend-canvas"></canvas></div>
+      <div id="empty-trend" class="empty hidden">No runs yet — click “Ingest logs”.</div>
+    </div>
+    <div class="chart-card">
+      <h2>Throughput by context</h2>
+      <div id="chart-tp" class="chart-wrap"><canvas id="tp-canvas"></canvas></div>
+      <div id="empty-tp" class="empty hidden">No speed data yet — click “Run speed probe”.</div>
+    </div>
+    <div class="chart-card">
+      <h2>Time-to-first-token by context</h2>
+      <div id="chart-ttft" class="chart-wrap"><canvas id="ttft-canvas"></canvas></div>
+      <div id="empty-ttft" class="empty hidden">No speed data yet — click “Run speed probe”.</div>
+    </div>
+  </section>
+
+  <section class="runs-section">
+    <h2>Run history</h2>
+    <div id="empty-runs" class="empty hidden">No runs yet.</div>
+    <div class="table-wrap">
+      <table id="runs-table" class="sortable">
+        <thead>
+          <tr>
+            <th data-key="created">Created</th>
+            <th data-key="model">Model</th>
+            <th data-key="task">Task</th>
+            <th data-key="score">Score</th>
+            <th data-key="stderr">Std Err</th>
+            <th data-key="samples">Samples</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+inspect_view_url: ""
+logs_dir: sample_logs
+db_path: bench.db
+models:
+- name: polystrata-q3
+  base_url: http://100.112.119.2:8080/v1
+  model_id: tiel-coder-35b-a3b-ud-q3_k_xl
+  api_key_file: ~/.config/strata/key
