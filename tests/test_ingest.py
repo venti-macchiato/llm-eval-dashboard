@@ -5,7 +5,9 @@ removed sample_logs/) so the ingest path is exercised end to end without
 depending on committed sample data.
 """
 
-import sqlite3
+import json
+import shlex
+import sys
 from datetime import datetime, timedelta
 
 import pytest
@@ -19,6 +21,9 @@ def model_config(monkeypatch):
     """Inject the polystrata-q3 model mapping that config.yaml normally holds."""
     import config
 
+    # Never inherit a user's config.yaml probe setting: tests must not run
+    # nvidia-smi, and the probe is opt-in per test.
+    monkeypatch.setattr(config, "HOST_PROBE", {})
     monkeypatch.setattr(
         config,
         "MODELS",
@@ -116,7 +121,7 @@ def test_ingest_idempotent(tmp_path, model_config):
     result = ingest.ingest(str(_logs_dir(tmp_path)), db_path)
     assert result["new"] == 3
     again = ingest.ingest(str(_logs_dir(tmp_path)), db_path)
-    assert again == {"new": 0, "skipped": 0}
+    assert again == {"new": 0, "skipped": 0, "updated": 0}
 
 
 def test_ingest_empty_dir(tmp_path):
@@ -124,7 +129,7 @@ def test_ingest_empty_dir(tmp_path):
     empty.mkdir()
     db_path = tmp_path / "empty.db"
     result = ingest.ingest(empty, db_path)
-    assert result == {"new": 0, "skipped": 0}
+    assert result == {"new": 0, "skipped": 0, "updated": 0}
 
 
 def test_ingest_unknown_model_skipped(tmp_path, model_config):
@@ -182,3 +187,72 @@ def test_ingest_rolls_back_on_failure(tmp_path):
         assert count == 0
     finally:
         db.close(conn)
+
+
+def _meta_rows(db_path):
+    conn = db.connect(db_path)
+    try:
+        return [json.loads(r["meta"]) for r in conn.execute("SELECT meta FROM runs")]
+    finally:
+        db.close(conn)
+
+
+def test_ingest_records_declared_hardware(tmp_path, model_config):
+    model_config.MODELS[0]["hardware"] = {
+        "backend": "llama.cpp",
+        "quant": "Q3_K_XL",
+        "ctx_size": 32768,
+    }
+    db_path = tmp_path / "bench.db"
+    ingest.ingest(str(_logs_dir(tmp_path)), db_path)
+
+    metas = _meta_rows(db_path)
+    assert len(metas) == 3
+    for meta in metas:
+        assert meta["hardware"]["declared"] == {
+            "backend": "llama.cpp",
+            "quant": "Q3_K_XL",
+            "ctx_size": 32768,
+        }
+        assert "probe" not in meta["hardware"]
+
+
+def test_ingest_backfills_hardware_into_legacy_rows(tmp_path, model_config):
+    """Runs ingested before hardware was declared gain it, once."""
+    db_path = tmp_path / "bench.db"
+    logs = str(_logs_dir(tmp_path))
+    ingest.ingest(logs, db_path)
+    assert all("hardware" not in meta for meta in _meta_rows(db_path))
+
+    model_config.MODELS[0]["hardware"] = {"quant": "Q3_K_XL"}
+    result = ingest.ingest(logs, db_path)
+    assert result == {"new": 0, "skipped": 0, "updated": 3}
+    assert all(meta["hardware"]["declared"] == {"quant": "Q3_K_XL"} for meta in _meta_rows(db_path))
+
+    # A second ingest with the hardware already recorded changes nothing.
+    assert ingest.ingest(logs, db_path) == {"new": 0, "skipped": 0, "updated": 0}
+
+
+def test_ingest_probes_local_host_once_per_model(tmp_path, model_config):
+    marker = tmp_path / "probe_calls"
+    script = (
+        f"open({str(marker)!r}, 'a').write('x'); "
+        "print('NVIDIA GeForce RTX 4090, 24564, 550.54')"
+    )
+    exe = shlex.quote(sys.executable)
+    model_config.HOST_PROBE = {
+        "enabled": True,
+        "command": f"{exe} -c {shlex.quote(script)}",
+        "timeout": 20,
+    }
+    model_config.MODELS[0]["base_url"] = "http://127.0.0.1:8080/v1"
+    db_path = tmp_path / "bench.db"
+    ingest.ingest(str(_logs_dir(tmp_path)), db_path)
+
+    # One probe per model per ingest, not one per log row.
+    assert marker.read_text() == "x"
+    metas = _meta_rows(db_path)
+    for meta in metas:
+        probe = meta["hardware"]["probe"]
+        assert probe["source"] == "probe"
+        assert probe["gpus"][0]["memory_gb"] == 24.0

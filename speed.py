@@ -1,51 +1,50 @@
-"""Speed probe for OpenAI-compatible endpoints.
+"""Speed probe orchestration.
 
-For each context size (default [2000, 16000, 64000]) send ONE streaming
-/chat/completions request asking for ~200 output tokens. Record:
-
-  * TTFT      - time from request start to first content chunk
-  * prefill_tps - prompt_tokens / TTFT (usage if server returns it, else estimate)
-  * gen_tps   - output_tokens / (end - first_token_time)
-
-Requests run serially (the server handles one at a time). Probe runs in a
-background thread via start_probe(); only one probe runs at a time.
+For each model, context size, and concurrency level, run one or more concurrent
+batches (see :mod:`speedprobe`) and store one row per batch. With
+``iterations > 1`` the repeats share a ``batch_id`` so the UI can plot a
+sustained run and look for thermal drift.
 """
 
 from __future__ import annotations
 
-import time
-import threading
 import secrets
+import threading
+import time
 from pathlib import Path
 
-import httpx
+import evaljobs
+import modeljobs
+import promptharness
+import speedprobe
+from speedprobe import OUTPUT_TOKENS, probe_batch, probe_one  # noqa: F401 - re-exported
 
 DEFAULT_CONTEXT_SIZES = [2000, 16000, 64000]
-OUTPUT_TOKENS = 200
-CHARS_PER_TOKEN = 4
+DEFAULT_CONCURRENCY = [1]
+DEFAULT_ITERATIONS = 1
+
+# Columns written for one batch, in insert order.
+COLUMNS = (
+    "model",
+    "ts",
+    "ctx_tokens",
+    "concurrency",
+    "batch_id",
+    "ttft_s",
+    "ttft_p50",
+    "ttft_p95",
+    "prefill_tps",
+    "gen_tps",
+    "agg_gen_tps",
+    "out_tokens",
+    "requests",
+    "errors",
+    "wall_s",
+)
 
 _lock = threading.Lock()
 _running = False
 _last_error: str | None = None
-
-
-def _random_prefix() -> str:
-    """Return a random prefix to defeat response caching between runs.
-
-    Without it, an identical prompt lets the server reuse cached KV blocks,
-    which inflates prefill tok/s on repeat probes.
-    """
-    return secrets.token_urlsafe(24)
-
-
-def _filler(prompt_tokens: int) -> str:
-    """Build a prompt of roughly prompt_tokens tokens from filler text."""
-    chars_needed = prompt_tokens * CHARS_PER_TOKEN
-    # ~4 chars per token on average for English-ish filler.
-    base = "The quick brown fox jumps over the lazy dog. "
-    repeat = max(1, chars_needed // len(base))
-    text = (base * repeat)[:chars_needed]
-    return text
 
 
 def _read_api_key(api_key_file: str) -> str:
@@ -55,108 +54,44 @@ def _read_api_key(api_key_file: str) -> str:
         return fh.read().strip()
 
 
-def probe_one(
-    base_url: str,
-    model_id: str,
-    api_key: str,
-    context_tokens: int,
-    prefix: str | None = None,
-) -> dict:
-    """Run a single streaming probe for one context size.
+def run_probe(
+    models: list[dict],
+    context_sizes: list[int] | None = None,
+    concurrency: list[int] | None = None,
+    iterations: int = DEFAULT_ITERATIONS,
+) -> list[dict]:
+    """Probe all models serially; batches run at the requested concurrency.
 
-    Returns a dict with keys: model, ts, ctx_tokens, ttft_s, prefill_tps,
-    gen_tps, out_tokens.
-    """
-    url = f"{base_url.rstrip('/')}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    prompt = _random_prefix() if prefix is None else prefix
-    prompt += _filler(context_tokens)
-    payload = {
-        "model": model_id,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": OUTPUT_TOKENS,
-        "stream": True,
-        "stream_options": {"include_usage": True},
-    }
-
-    start = time.perf_counter()
-    first_token_time = None
-    usage = None
-    out_tokens = None
-
-    import json
-
-    with httpx.stream("POST", url, json=payload, headers=headers, timeout=600.0) as resp:
-        resp.raise_for_status()
-        for line in resp.iter_lines():
-            if not line:
-                continue
-            if line == "data: [DONE]":
-                break
-            if line.startswith("data: "):
-                chunk = line[len("data: "):]
-                try:
-                    data = json.loads(chunk)
-                except ValueError:
-                    continue
-                # Usage can arrive in a chunk with no content choices.
-                if usage is None and data.get("usage") is not None:
-                    usage = data["usage"]
-                choices = data.get("choices") or []
-                for choice in choices:
-                    delta = choice.get("delta") or {}
-                    if delta.get("content") and first_token_time is None:
-                        first_token_time = time.perf_counter()
-
-    end = time.perf_counter()
-
-    ttft = (first_token_time - start) if first_token_time is not None else None
-    if usage is not None and usage.get("prompt_tokens") is not None:
-        prompt_tokens = usage["prompt_tokens"]
-    else:
-        prompt_tokens = context_tokens
-
-    prefill_tps = (prompt_tokens / ttft) if (ttft and ttft > 0) else None
-    gen_seconds = (end - first_token_time) if first_token_time is not None else None
-
-    if usage is not None and usage.get("completion_tokens") is not None:
-        out_tokens = usage["completion_tokens"]
-    else:
-        # No usage reported: report unknown rather than fabricate a number.
-        out_tokens = None
-
-    gen_tps = (out_tokens / gen_seconds) if (gen_seconds and gen_seconds > 0) else None
-
-    return {
-        "model": model_id,
-        "ctx_tokens": context_tokens,
-        "ttft_s": ttft,
-        "prefill_tps": prefill_tps,
-        "gen_tps": gen_tps,
-        "out_tokens": out_tokens,
-    }
-
-
-def run_probe(models: list[dict], context_sizes: list[int] | None = None) -> list[dict]:
-    """Probe all models serially. Returns list of probe results.
-
-    Each result's ``model`` field is the config name (``model['name']``), not
-    the request model_id, so it matches the runs table and the UI picker.
+    Each result's ``model`` is the config name so it matches the runs table and
+    the UI pickers.
     """
     sizes = context_sizes or DEFAULT_CONTEXT_SIZES
-    results = []
+    levels = sorted({int(c) for c in (concurrency or DEFAULT_CONCURRENCY) if int(c) > 0})
+    levels = levels or [1]
+    iterations = max(1, int(iterations or 1))
+
+    results: list[dict] = []
     for model in models:
         api_key = _read_api_key(model["api_key_file"])
         for ctx in sizes:
-            result = probe_one(
-                model["base_url"], model["model_id"], api_key, ctx
-            )
-            result["model"] = model["name"]
-            result["ts"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-            results.append(result)
+            for level in levels:
+                batch_id = (
+                    f"{time.strftime('%Y%m%dT%H%M%S')}-{model['name']}-"
+                    f"{ctx}-c{level}-{secrets.token_hex(3)}"
+                )
+                for _ in range(iterations):
+                    stats = probe_batch(
+                        model["base_url"], model["model_id"], api_key, ctx, level
+                    )
+                    stats.update(
+                        {
+                            "model": model["name"],
+                            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                            "ctx_tokens": ctx,
+                            "batch_id": batch_id,
+                        }
+                    )
+                    results.append(stats)
     return results
 
 
@@ -170,42 +105,50 @@ def last_error() -> str | None:
     return _last_error
 
 
-def start_probe() -> bool:
-    """Run the probe for all configured models in a background thread.
+def start_probe(
+    context_sizes: list[int] | None = None,
+    model_names: list[str] | None = None,
+    concurrency: list[int] | None = None,
+    iterations: int = DEFAULT_ITERATIONS,
+) -> bool:
+    """Run the probe in a background thread.
 
-    Returns True if a probe was started, False if one is already running.
-    Any error in the probe is captured and exposed via last_error(); it is
-    not swallowed.
+    ``concurrency`` is a list of request counts to test (1/2/4/8 …);
+    ``iterations`` repeats each batch back-to-back for drift. Returns True if a
+    probe was started, False if one is already running. Errors are exposed via
+    :func:`last_error`.
     """
     global _running, _last_error
-    if not _lock.acquire(blocking=False):
-        return False
-    _running = True
-    _last_error = None
+    with modeljobs.LOCK:
+        if evaljobs.is_running() or promptharness.is_running():
+            _last_error = "an eval or prompt run is active"
+            return False
+        if not _lock.acquire(blocking=False):
+            return False
+        _running = True
+        _last_error = None
 
     def _worker():
         global _running, _last_error
         try:
-            from config import DB_PATH, MODELS
             import db
+            from config import DB_PATH, MODELS
 
-            results = run_probe(MODELS)
+            models = list(MODELS)
+            if model_names:
+                wanted = set(model_names)
+                models = [m for m in models if m.get("name") in wanted]
+                if not models:
+                    raise ValueError("no configured models matched the request")
+            results = run_probe(models, context_sizes, concurrency, iterations)
             conn = db.connect(DB_PATH)
             try:
-                for r in results:
+                placeholders = ", ".join("?" * len(COLUMNS))
+                for result in results:
                     conn.execute(
-                        """INSERT INTO speed
-                           (model, ts, ctx_tokens, ttft_s, prefill_tps, gen_tps, out_tokens)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            r["model"],
-                            r["ts"],
-                            r["ctx_tokens"],
-                            r["ttft_s"],
-                            r["prefill_tps"],
-                            r["gen_tps"],
-                            r["out_tokens"],
-                        ),
+                        f"INSERT INTO speed ({', '.join(COLUMNS)}) "
+                        f"VALUES ({placeholders})",
+                        tuple(result.get(column) for column in COLUMNS),
                     )
                 conn.commit()
             finally:

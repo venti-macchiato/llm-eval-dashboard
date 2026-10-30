@@ -4,14 +4,53 @@
 # Run `python setup.py` (or `python -m setup`) after cloning to copy this file
 # to config.yaml automatically. Then edit config.yaml with your real values.
 
+# Optional: command used to launch inspect. Leave "" to auto-detect.
+inspect_cmd: "python -m inspect_ai"
+
+# Named groups of benchmarks. Task ids are inspect_evals/<task>; `limit` caps
+# the number of samples so a run stays quick. Add your own groups freely.
+suites:
+  smoke:
+    - {task: inspect_evals/ifeval, limit: 10}
+    - {task: inspect_evals/gsm8k, limit: 20}
+    - {task: inspect_evals/arc_challenge, limit: 20}
+  quick:
+    - {task: inspect_evals/ifeval, limit: 20}
+    - {task: inspect_evals/gsm8k, limit: 20}
+    - {task: inspect_evals/arc_challenge, limit: 20}
+  reasoning:
+    - {task: inspect_evals/arc_challenge, limit: 50}
+    - {task: inspect_evals/bbh, limit: 20}
+    - {task: inspect_evals/gpqa_diamond, limit: 10}
+  math:
+    - {task: inspect_evals/gsm8k, limit: 50}
+    - {task: inspect_evals/math, limit: 30}
+    - {task: inspect_evals/aime2025, limit: 10}
+  code:
+    - {task: inspect_evals/humaneval, limit: 30}
+    - {task: inspect_evals/mbpp, limit: 30}
+  instruction:
+    - {task: inspect_evals/ifeval, limit: 50}
+  knowledge:
+    - {task: inspect_evals/mmlu_5_shot, limit: 60}
+    - {task: inspect_evals/hellaswag, limit: 40}
+    - {task: inspect_evals/boolq, limit: 40}
+  long_context:
+    - {task: inspect_evals/niah, limit: 10}
+    - {task: inspect_evals/infinite_bench_passkey, limit: 10}
+  tools:
+    - {task: inspect_evals/bfcl, limit: 20}
+  multilingual:
+    - {task: inspect_evals/mgsm, limit: 20}
+  safety:
+    - {task: inspect_evals/xstest, limit: 50}
+    - {task: inspect_evals/truthfulqa, limit: 30}
+
 # Directory of inspect_ai .eval logs to ingest.
 logs_dir: "logs/"
 
 # SQLite database file.
 db_path: "bench.db"
-
-# Optional link to your inspect_ai view.
-inspect_view_url: ""
 
 # One or more models. Each model needs:
 #   name:         display name used in the dashboard and API filters
@@ -19,9 +58,46 @@ inspect_view_url: ""
 #   base_url:     OpenAI-compatible endpoint (leave "" to skip the speed probe)
 #   model_id:     the id sent to the endpoint
 #   api_key_file: path to a file containing the raw API key (leave "" to skip)
+#
+# Optional `hardware:` block: what the model actually runs on. Neither the eval
+# log nor the OpenAI API exposes this, and quant/context change what a score
+# means, so it is snapshotted into every run's meta and compared side by side
+# in the Compare view. Every field is optional; only fill what you know.
+#   backend:         llama.cpp | vLLM | Ollama | LM Studio | ...
+#   backend_version: server build/version string
+#   quant:           e.g. Q3_K_XL, Q5_K_M, AWQ int4, fp16
+#   gpu:             GPU name, or a list for multi-GPU
+#   vram_gb:         VRAM per GPU in GB
+#   ctx_size:        context window the server was started with (tokens)
+#   offload:         e.g. "35/48 layers on GPU", free text
+#   host:            machine running the server, if not the base_url host
+#   notes:           anything else that affects the score (build flags, …)
+#
+# Variants: one entry per variant (q4/q5/q8, different ctx sizes). Give entries
+# that belong together the same `base_model` to group them in the Variants view;
+# mark one per family `baseline: true` as the reference for regressions. Entries
+# without `base_model` form a family of their own.
 models:
-  - name: "your-model"
+  - name: "your-model-q4"
+    base_model: "your-model"
+    baseline: true
     inspect_model: "your-model"
     base_url: ""
     model_id: "your-model"
     api_key_file: ""
+    hardware:
+      backend: llama.cpp
+      quant: Q4_K_M
+      gpu: RTX 4090
+      vram_gb: 24
+      ctx_size: 32768
+
+# Optional local host probe. Records this machine's GPUs alongside a run, but
+# only when the endpoint host is this machine (localhost, the hostname, or a
+# local IP) - a local probe must never be attributed to a remote server.
+# The command must print `nvidia-smi --format=csv,noheader,nounits` style lines:
+# name, memory MiB, driver version.
+host_probe:
+  enabled: false
+  command: nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader,nounits
+  timeout: 10

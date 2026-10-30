@@ -1,0 +1,352 @@
+categories:
+- id: knowledge
+  label: Knowledge & comprehension
+  description: Multiple-choice and reading tasks that test stored knowledge and basic comprehension.
+- id: reasoning
+  label: Reasoning
+  description: Multi-step logic, science, and exam-style problems that resist memorisation.
+- id: math
+  label: Mathematics
+  description: Arithmetic word problems through competition mathematics; answers are checked exactly.
+- id: code
+  label: Code
+  description: Program synthesis judged by executing unit tests. Needs a working Python sandbox.
+- id: instruction
+  label: Instruction following
+  description: Verifiable constraints (format, length, casing, keywords) checked by rules, not a judge.
+- id: tools
+  label: Tools & agents
+  description: Function calling and multi-step tool use; closer to real assistant work than trivia.
+- id: long_context
+  label: Long context
+  description: Retrieval and reasoning over inputs far longer than a normal prompt.
+- id: safety
+  label: Safety & truthfulness
+  description: Refusal calibration, truthfulness, and hazardous-knowledge probes.
+- id: multimodal
+  label: Multimodal
+  description: Image/diagram questions. Only meaningful if your served model accepts images.
+- id: domain
+  label: Domain knowledge
+  description: Medicine, chemistry, and security exams; useful for specialised local models.
+- id: writing
+  label: Writing
+  description: Open-ended writing quality, usually scored by a model judge.
+- id: other
+  label: Other
+  description: Tasks without a curated description yet.
+benchmarks:
+  mmlu_5_shot:
+    title: MMLU (5-shot)
+    category: knowledge
+    measures: '57-subject multiple choice: STEM, humanities, law, medicine, social science.'
+    read: 25% is chance. ~60-70% is a solid 7-14B model; 80%+ is strong.
+  mmlu_pro:
+    title: MMLU-Pro
+    category: knowledge
+    measures: Harder MMLU variant with ten answer options and more reasoning-heavy items.
+    read: 10% is chance. Scores run well below MMLU; compare models, not absolute numbers.
+  arc_challenge:
+    title: ARC Challenge
+    category: knowledge
+    measures: Grade-school science multiple choice requiring inference beyond recall.
+    read: 25% chance. 70%+ is good for small models; 90%+ is strong.
+  arc_easy:
+    title: ARC Easy
+    category: knowledge
+    measures: Easier ARC split; mostly direct science facts.
+    read: Saturates quickly; use it as a floor, not a differentiator.
+  hellaswag:
+    title: HellaSwag
+    category: knowledge
+    measures: Pick the most plausible continuation of a everyday scenario.
+    read: 25% chance. Modern models often exceed 80%; low scores suggest weak world modelling.
+  boolq:
+    title: BoolQ
+    category: knowledge
+    measures: Yes/no questions about a short passage.
+    read: 50% chance. Above ~85% is common for capable instruct models.
+  piqa:
+    title: PIQA
+    category: knowledge
+    measures: 'Physical commonsense: which of two solutions is physically sensible.'
+    read: 50% chance. Mostly a sanity check.
+  winogrande:
+    title: WinoGrande
+    category: knowledge
+    measures: 'Coreference resolution: which noun a pronoun refers to.'
+    read: 50% chance. Tests linguistic robustness more than knowledge.
+  commonsense_qa:
+    title: CommonsenseQA
+    category: knowledge
+    measures: Everyday commonsense multiple choice with five options.
+    read: 20% chance. Useful quick check for small models.
+  squad:
+    title: SQuAD
+    category: knowledge
+    measures: Extractive question answering from a Wikipedia paragraph.
+    read: Exact-match/F1; high scores mostly reflect reading, not reasoning.
+  race_h:
+    title: RACE-H
+    category: knowledge
+    measures: High-school reading comprehension, including inference questions.
+    read: 25% chance. Good signal for long-passage comprehension.
+  bbh:
+    title: BIG-Bench Hard
+    category: reasoning
+    measures: '23 tasks where pre-2022 models underperformed humans: tracking, logic, causality.'
+    read: Compare against other runs; absolute values vary a lot by prompt format.
+  gpqa_diamond:
+    title: GPQA Diamond
+    category: reasoning
+    measures: Graduate-level physics, chemistry, and biology questions written to resist search.
+    read: 25% chance. 40-60% is strong; expert humans score ~65%.
+  bbeh:
+    title: BIG-Bench Extra Hard
+    category: reasoning
+    measures: Harder successors to BBH tasks; deliberately low saturation.
+    read: Expect low absolute scores; useful for ranking strong models.
+  drop:
+    title: DROP
+    category: reasoning
+    measures: 'Discrete reasoning over paragraphs: arithmetic, counting, sorting, comparison.'
+    read: Exact-match F1. Strong models are well above 70%.
+  agie_lsat_ar:
+    title: AGIEval LSAT-AR
+    category: reasoning
+    measures: Analytical reasoning (logic games) from the LSAT.
+    read: 20% chance. Good test of constraint tracking.
+  agie_lsat_lr:
+    title: AGIEval LSAT-LR
+    category: reasoning
+    measures: Logical reasoning questions from the LSAT.
+    read: 20% chance. Tests argument analysis, not knowledge.
+  agie_lsat_rc:
+    title: AGIEval LSAT-RC
+    category: reasoning
+    measures: Reading comprehension from the LSAT.
+    read: 20% chance. Dense passages; tests careful reading.
+  agie_sat_math:
+    title: AGIEval SAT-Math
+    category: reasoning
+    measures: SAT mathematics questions, mostly multiple choice.
+    read: 20% chance. Easier than MATH or AIME.
+  gsm8k:
+    title: GSM8K
+    category: math
+    measures: Grade-school arithmetic word problems; final answer compared exactly.
+    read: Modern 7B instruct models often exceed 70%; 90%+ is strong.
+  math:
+    title: MATH
+    category: math
+    measures: Competition mathematics (AMC/AIME style) with answer equivalence checking.
+    read: Much harder than GSM8K. 20-50% is respectable for local models.
+  aime2024:
+    title: AIME 2024
+    category: math
+    measures: 30 very hard competition problems with integer answers.
+    read: High variance due to only 30 items; treat small differences as noise.
+  aime2025:
+    title: AIME 2025
+    category: math
+    measures: 30 very hard competition problems with integer answers.
+    read: High variance due to only 30 items; repeat or use a larger limit.
+  mgsm:
+    title: MGSM
+    category: math
+    measures: GSM8K translated into several languages; tests multilingual reasoning.
+    read: Compare each language against English to spot translation gaps.
+  agie_math:
+    title: AGIEval Math
+    category: math
+    measures: Mixed high-school and competition mathematics from Chinese exams.
+    read: Answer-equivalence scored; compare family members on the same split.
+  humaneval:
+    title: HumanEval
+    category: code
+    measures: Write Python functions from docstrings; judged by unit tests (pass@1).
+    read: Needs a Python sandbox. 50%+ is decent for 7B coding models; 80%+ is strong.
+  mbpp:
+    title: MBPP
+    category: code
+    measures: Short Python programs from natural-language descriptions; unit tests.
+    read: Easier than HumanEval. Complements it well.
+  bigcodebench:
+    title: BigCodeBench
+    category: code
+    measures: Realistic programming tasks needing standard-library and third-party APIs.
+    read: Closer to practical coding than HumanEval; scores are lower.
+  apps:
+    title: APPS
+    category: code
+    measures: Competitive-programming style problems with hidden tests.
+    read: Hard; low absolute scores are normal.
+  ds1000:
+    title: DS-1000
+    category: code
+    measures: Data-science code completion with library-specific tests.
+    read: Requires a sandbox with pandas/numpy/etc.
+  livecodebench_pro:
+    title: LiveCodeBench Pro
+    category: code
+    measures: Recent competitive-programming problems, meant to limit contamination.
+    read: Hard and contamination-resistant; good for comparing strong models.
+  ifeval:
+    title: IFEval
+    category: instruction
+    measures: 'Follow verifiable constraints: exact format, casing, length, keywords, JSON.'
+    read: Strict and loose accuracy are both reported; strict is the honest number.
+  ifevalcode:
+    title: IFEvalCode
+    category: instruction
+    measures: Instruction following for code generation (format, signatures, constraints).
+    read: Useful for tooling where output shape matters.
+  bfcl:
+    title: Berkeley Function Calling Leaderboard
+    category: tools
+    measures: Correct function selection and argument construction from a schema.
+    read: The most practical test here if you use the model for tool calling.
+  gaia:
+    title: GAIA
+    category: tools
+    measures: Assistant questions that need browsing, tools, and multi-step reasoning.
+    read: Levels 1-3 increase in difficulty; needs tool access to score well.
+  gaia_level1:
+    title: GAIA Level 1
+    category: tools
+    measures: Easiest GAIA split; still requires tool use.
+    read: Good entry point before running the full set.
+  agentdojo:
+    title: AgentDojo
+    category: tools
+    measures: Agent tasks with adversarial prompt injection in tool outputs.
+    read: Reports utility and attack success; lower attack success is better.
+  agentharm:
+    title: AgentHarm
+    category: safety
+    measures: Willingness to perform harmful agentic actions, and refusal quality.
+    read: Higher refusal on harmful tasks is better; read the metric names carefully.
+  niah:
+    title: Needle in a Haystack
+    category: long_context
+    measures: Retrieve a planted fact from a long context at varying depths and lengths.
+    read: Scores drop past the model's effective context; watch where it breaks.
+  infinite_bench_passkey:
+    title: InfiniteBench Passkey
+    category: long_context
+    measures: Find a passkey in a very long synthetic document.
+    read: Pure retrieval; high scores are necessary but not sufficient for long-context work.
+  infinite_bench_kv_retrieval:
+    title: InfiniteBench KV Retrieval
+    category: long_context
+    measures: Recover key-value pairs scattered through a long context.
+    read: Harder than passkey; tests associative retrieval.
+  infinite_bench_longbook_choice_eng:
+    title: InfiniteBench LongBook
+    category: long_context
+    measures: Multiple-choice questions about a long English book excerpt.
+    read: Tests comprehension, not just retrieval.
+  infinite_bench_longdialogue_qa_eng:
+    title: InfiniteBench LongDialogue
+    category: long_context
+    measures: Questions about a long multi-turn dialogue.
+    read: Closest to long chat history use.
+  truthfulqa:
+    title: TruthfulQA
+    category: safety
+    measures: Questions where common misconceptions tempt a false answer.
+    read: Higher truthful rate is better; also look at the informativeness split.
+  xstest:
+    title: XSTest
+    category: safety
+    measures: 'Exaggerated-safety test: safe prompts that look unsafe, and unsafe prompts.'
+    read: You want high compliance on safe prompts and high refusal on unsafe ones.
+  wmdp_cyber:
+    title: WMDP Cyber
+    category: safety
+    measures: Hazardous cybersecurity knowledge (weapons-of-mass-destruction proxy).
+    read: Lower is safer, but interpret alongside capability; not a general quality score.
+  cybermetric_500:
+    title: CyberMetric 500
+    category: domain
+    measures: Cybersecurity knowledge multiple choice.
+    read: 25% chance. Use for security-specialised models.
+  sec_qa_v1:
+    title: SecQA v1
+    category: domain
+    measures: Security fundamentals multiple choice.
+    read: 25% chance. Lightweight domain check.
+  mmmu_multiple_choice:
+    title: MMMU (multiple choice)
+    category: multimodal
+    measures: College-level questions over images, charts, and diagrams.
+    read: Only meaningful if the served model accepts images.
+  mathvista:
+    title: MathVista
+    category: multimodal
+    measures: Mathematical reasoning over visual contexts.
+    read: Requires vision; skip for text-only models.
+  docvqa:
+    title: DocVQA
+    category: multimodal
+    measures: Question answering over scanned documents.
+    read: Requires vision; tests OCR-adjacent reading.
+  vqa_rad:
+    title: VQA-RAD
+    category: multimodal
+    measures: Radiology visual question answering.
+    read: Requires vision and medical images.
+  medqa:
+    title: MedQA
+    category: domain
+    measures: US medical licensing exam style questions.
+    read: 25% chance. Useful for medical fine-tunes.
+  pubmedqa:
+    title: PubMedQA
+    category: domain
+    measures: Yes/no/maybe questions grounded in biomedical abstracts.
+    read: 33% chance. Tests scientific reading.
+  chembench:
+    title: ChemBench
+    category: domain
+    measures: Chemistry knowledge and reasoning questions.
+    read: Useful for chemistry-specialised models.
+  writingbench:
+    title: WritingBench
+    category: writing
+    measures: Open-ended writing quality, scored by a model judge.
+    read: Subjective and judge-dependent; use for relative comparisons only.
+suites:
+  smoke:
+    label: Smoke
+    description: Tiny run to verify the endpoint and plumbing works end to end.
+  quick:
+    label: Quick signal
+    description: One task each from instruction following, math, and knowledge; ~2-5 minutes.
+  reasoning:
+    label: Reasoning
+    description: 'BBH, GPQA Diamond, ARC: logic and science under less memorisable pressure.'
+  math:
+    label: Mathematics
+    description: 'GSM8K, MATH, AIME: arithmetic through competition problems.'
+  code:
+    label: Code
+    description: HumanEval and MBPP; needs a Python sandbox.
+  instruction:
+    label: Instruction following
+    description: IFEval constraints; the best cheap proxy for prompt adherence.
+  knowledge:
+    label: Knowledge
+    description: 'MMLU, HellaSwag, BoolQ: broad knowledge and comprehension.'
+  long_context:
+    label: Long context
+    description: Needle-in-a-haystack and InfiniteBench retrieval at long lengths.
+  tools:
+    label: Tools & agents
+    description: BFCL function calling; add GAIA for multi-step tool use.
+  multilingual:
+    label: Multilingual
+    description: MGSM across languages; compare against the English baseline.
+  safety:
+    label: Safety & truthfulness
+    description: XSTest refusal calibration and TruthfulQA misconceptions.

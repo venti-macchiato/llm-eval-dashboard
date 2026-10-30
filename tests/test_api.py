@@ -54,6 +54,7 @@ def client(tmp_path, monkeypatch):
                 "base_url": "",
                 "model_id": "tiel-coder-35b-a3b-ud-q3_k_xl",
                 "api_key_file": "",
+                "hardware": {"backend": "llama.cpp", "quant": "Q3_K_XL", "ctx_size": "32768"},
             }
         ],
     )
@@ -67,8 +68,15 @@ def test_models_endpoint(client):
     resp = client.get("/api/models")
     assert resp.status_code == 200
     data = resp.json()
-    # /api/models returns the models from config.yaml (only polystrata-q3).
-    assert data == ["polystrata-q3"]
+    # /api/models returns configured models with endpoint metadata (no key).
+    assert [m["name"] for m in data] == ["polystrata-q3"]
+    assert set(data[0]) == {"name", "base_url", "model_id", "has_key", "hardware"}
+    # Declared hardware is normalised (ctx_size string -> int) and keyless.
+    assert data[0]["hardware"] == {
+        "backend": "llama.cpp",
+        "quant": "Q3_K_XL",
+        "ctx_size": 32768,
+    }
 
 
 def test_runs_endpoint_all(client):
@@ -205,7 +213,7 @@ def test_root_serves_html(client):
 
 
 def test_static_files_served(client):
-    resp = client.get("/static/style.css")
+    resp = client.get("/static/favicon.svg")
     assert resp.status_code == 200
     assert resp.text
 
@@ -243,3 +251,272 @@ def test_ingest_endpoint(client, monkeypatch, tmp_path):
     assert "new" in body
     assert isinstance(body["new"], int)
 
+
+def test_runs_multi_value_filter(client):
+    resp = client.get(
+        "/api/runs",
+        params=[("model", "gpt-4o"), ("model", "polystrata-q3")],
+    )
+    assert resp.status_code == 200
+    assert {r["eval_id"] for r in resp.json()} == {"e1", "e2", "e3", "e4", "e5", "e6"}
+
+
+def test_leaderboard_matrix(client):
+    data = client.get("/api/leaderboard").json()
+    assert data["models"] == ["gpt-4o", "polystrata-q3"]
+    assert data["tasks"] == ["history", "math"]
+    # Newest run per (model, task) wins.
+    assert data["cells"]["polystrata-q3"]["math"]["eval_id"] == "e3"
+    assert data["cells"]["gpt-4o"]["history"]["eval_id"] == "e6"
+
+
+def test_leaderboard_task_filter(client):
+    data = client.get("/api/leaderboard", params={"task": "history"}).json()
+    assert data["tasks"] == ["history"]
+    assert set(data["cells"]["polystrata-q3"]) == {"history"}
+
+
+def test_run_detail_and_missing(client):
+    body = client.get("/api/run/e3").json()
+    assert body["task"] == "math"
+    assert body["score"] == 0.7
+    assert client.get("/api/run/does-not-exist").status_code == 404
+
+
+def test_export_runs_csv(client):
+    resp = client.get("/api/export/runs.csv")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/csv")
+    lines = resp.text.strip().splitlines()
+    assert lines[0].startswith("eval_id,task,model")
+    assert len(lines) == 7  # header + 6 seeded rows
+
+
+def test_export_runs_json_filtered(client):
+    data = client.get("/api/export/runs.json", params={"model": "gpt-4o"}).json()
+    assert {r["eval_id"] for r in data} == {"e5", "e6"}
+
+
+def test_export_rejects_unknown_format(client):
+    assert client.get("/api/export/runs.xml").status_code == 400
+
+
+def test_catalog_endpoint(client):
+    data = client.get("/api/catalog").json()
+    assert isinstance(data, list)
+    assert all("task" in row and "id" in row for row in data)
+
+
+
+def test_leaderboard_pools_repeats(client):
+    data = client.get("/api/leaderboard").json()
+    cell = data["cells"]["polystrata-q3"]["math"]
+    # Three runs of the same (model, task, config) pool into one estimate.
+    assert cell["k"] == 3
+    assert cell["score"] == pytest.approx(0.6)
+    se = (0.01 + (0.05**2 + 0.04**2 + 0.03**2) / 3) / 3
+    assert cell["stderr"] == pytest.approx(se**0.5)
+    assert cell["ci_low"] == pytest.approx(0.6 - 1.96 * se**0.5)
+    # Newest member stays the drilldown target.
+    assert cell["eval_id"] == "e3"
+    assert cell["eval_ids"] == ["e3", "e2", "e1"]
+
+
+def test_leaderboard_single_run_keeps_stderr(client):
+    cell = client.get("/api/leaderboard").json()["cells"]["gpt-4o"]["math"]
+    assert cell["k"] == 1
+    assert cell["score"] == 0.65
+    assert cell["stderr"] == 0.04
+
+
+def test_groups_endpoint(client):
+    groups = client.get("/api/groups").json()
+    assert len(groups) == 4  # 2 models x 2 tasks
+    poly_math = next(
+        g for g in groups if g["model"] == "polystrata-q3" and g["task"] == "math"
+    )
+    assert poly_math["k"] == 3
+    assert poly_math["total_samples"] == 300
+
+
+def test_eval_run_rejects_bad_repeat_and_epoch_counts(client):
+    body = {
+        "model": "polystrata-q3",
+        "tasks": [{"task": "inspect_evals/gsm8k"}],
+        "repeats": 0,
+    }
+    assert client.post("/api/eval/run", json=body).status_code == 400
+    body["repeats"] = 1
+    body["epochs"] = "3"
+    assert client.post("/api/eval/run", json=body).status_code == 400
+    body["epochs"] = 21
+    assert client.post("/api/eval/run", json=body).status_code == 400
+
+
+def test_leaderboard_prefers_dataset_coverage(client):
+    """A newer 1-sample smoke run must not outrank a 20-sample group."""
+    import config
+    import db as dbmod
+
+    conn = dbmod.connect(config.DB_PATH)
+    try:
+        conn.executemany(
+            """INSERT INTO runs (eval_id, task, model, created, score, stderr, samples)
+               VALUES (?, 'gsm8k', 'polystrata-q3', ?, ?, ?, ?)""",
+            [
+                ("n1", "2024-01-05T10:00:00", 1.0, 0.0, 1),
+                ("n2", "2024-01-04T10:00:00", 0.90, 0.05, 20),
+                ("n3", "2024-01-03T10:00:00", 0.95, 0.04, 20),
+            ],
+        )
+        conn.commit()
+    finally:
+        dbmod.close(conn)
+
+    cell = client.get("/api/leaderboard").json()["cells"]["polystrata-q3"]["gsm8k"]
+    assert cell["samples"] == 20
+    assert cell["k"] == 2
+    assert cell["score"] == pytest.approx(0.925)
+
+
+def test_variants_endpoint_groups_and_regresses(client, monkeypatch):
+    monkeypatch.setattr(
+        "config.MODELS",
+        [
+            {"name": "polystrata-q3", "base_model": "polystrata", "hardware": {"quant": "Q3_K_XL"}},
+            {
+                "name": "gpt-4o",
+                "base_model": "polystrata",
+                "baseline": True,
+                "hardware": {"quant": "Q5_K_M"},
+            },
+        ],
+    )
+    data = client.get("/api/variants").json()
+    fam = data["families"][0]
+    assert fam["base_model"] == "polystrata"
+    assert fam["baseline"] == "gpt-4o"
+    assert [v["model"] for v in fam["variants"]] == ["polystrata-q3", "gpt-4o"]
+
+    reg = fam["regressions"]["polystrata-q3"]["math"]
+    assert reg["delta"] == pytest.approx(-0.05)
+    assert reg["within_noise"] is True
+
+    override = client.get("/api/variants", params={"baseline": "polystrata-q3"}).json()
+    fam = override["families"][0]
+    assert fam["baseline"] == "polystrata-q3"
+    assert fam["regressions"]["gpt-4o"]["math"]["delta"] == pytest.approx(0.05)
+
+
+def test_speed_run_rejects_bad_concurrency_and_iterations(client):
+    url = "/api/speed/run"
+    assert client.post(url, json={"concurrency": [], "iterations": 1}).status_code == 400
+    assert client.post(url, json={"concurrency": [0], "iterations": 1}).status_code == 400
+    assert client.post(url, json={"concurrency": [2], "iterations": 0}).status_code == 400
+    assert client.post(url, json={"concurrency": [2], "iterations": "3"}).status_code == 400
+
+
+def test_speed_status_reports_defaults(client):
+    data = client.get("/api/speed/status").json()
+    assert data["concurrency"] == [1]
+    assert data["iterations"] == 1
+    assert data["running"] is False
+
+
+def test_prompts_definitions_endpoint(client):
+    data = client.get("/api/prompts").json()
+    assert data["tests"], "prompts.yaml should define starter tests"
+    first = data["tests"][0]
+    assert {"id", "title", "category", "prompt", "check"} <= set(first)
+    assert data["running"] is False
+
+
+def test_prompts_results_empty(client):
+    assert client.get("/api/prompts/results").json() == {"runs": []}
+
+
+def test_prompts_run_validation_and_conflicts(client, monkeypatch):
+    url = "/api/prompts/run"
+    assert client.post(url, json={}).status_code == 400
+    assert client.post(url, json={"model": "nope"}).status_code == 400
+    assert client.post(url, json={"model": "polystrata-q3", "repeats": 0}).status_code == 400
+    monkeypatch.setattr("evaljobs.is_running", lambda: True)
+    assert client.post(url, json={"model": "polystrata-q3"}).status_code == 409
+
+
+def test_eval_and_speed_refuse_while_prompts_run(client, monkeypatch):
+    monkeypatch.setattr("promptharness.is_running", lambda: True)
+    eval_body = {"model": "polystrata-q3", "suite": "smoke"}
+    assert client.post("/api/eval/run", json=eval_body).status_code == 409
+    assert client.post("/api/speed/run", json={}).status_code == 409
+
+
+def test_preflight_reports_docker_availability(client, monkeypatch):
+    import sys
+
+    import sandbox
+
+    sandbox.clear_cache()
+    monkeypatch.setattr(sandbox, "DOCKER_CMD", [sys.executable, "-c", "print('24.0.7')"])
+    data = client.get("/api/preflight").json()
+    assert data["capabilities"]["docker"] == {"available": True, "detail": "24.0.7"}
+    assert data["requirements"]["humaneval"] == ["docker"]
+
+    sandbox.clear_cache()
+    monkeypatch.setattr(
+        sandbox, "DOCKER_CMD", [sys.executable, "-c", "import sys; sys.exit(1)"]
+    )
+    data = client.get("/api/preflight").json()
+    assert data["capabilities"]["docker"]["available"] is False
+    sandbox.clear_cache()
+
+
+def test_preflight_refresh_bypasses_the_cache(client, monkeypatch):
+    import sys
+
+    import sandbox
+
+    sandbox.clear_cache()
+    monkeypatch.setattr(
+        sandbox, "DOCKER_CMD", [sys.executable, "-c", "import sys; sys.exit(1)"]
+    )
+    assert client.get("/api/preflight").json()["capabilities"]["docker"]["available"] is False
+    monkeypatch.setattr(sandbox, "DOCKER_CMD", [sys.executable, "-c", "print('24.0.7')"])
+    # Cached answer is still the old failure.
+    assert client.get("/api/preflight").json()["capabilities"]["docker"]["available"] is False
+    refreshed = client.get("/api/preflight", params={"refresh": 1}).json()
+    assert refreshed["capabilities"]["docker"] == {"available": True, "detail": "24.0.7"}
+    sandbox.clear_cache()
+
+
+def test_catalog_excludes_scorers():
+    import catalog
+
+    catalog._cache = None
+    try:
+        names = catalog.load_catalog()
+    finally:
+        catalog._cache = None
+    assert "gsm8k" in names
+    assert "persistbench_judge" not in names
+
+
+def test_catalog_empty_when_inspect_evals_missing(monkeypatch):
+    import catalog
+
+    catalog._cache = None
+    monkeypatch.setattr(
+        catalog.importlib.util,
+        "find_spec",
+        lambda name: (_ for _ in ()).throw(ModuleNotFoundError("inspect_evals")),
+    )
+    try:
+        assert catalog.load_catalog() == []
+    finally:
+        catalog._cache = None
+
+
+def test_font_css_endpoint(client):
+    resp = client.get("/api/fonts.css")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/css")

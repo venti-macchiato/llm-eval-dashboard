@@ -151,3 +151,92 @@ def test_prompt_tokens_from_usage(fake_server):
     )
     # content is filler of ~2000 tokens * 4 chars = 8000 chars -> 2000 tokens
     assert result["prefill_tps"] == pytest.approx(2000 / result["ttft_s"], rel=0.1)
+
+
+def test_probe_batch_aggregates_concurrent_requests(fake_server):
+    batch = speed.probe_batch(fake_server, "test-model", "fake-key", 1000, concurrency=3)
+    assert batch["concurrency"] == 3
+    assert batch["requests"] == 3
+    assert batch["errors"] == 0
+    assert batch["ttft_p50"] is not None
+    assert batch["ttft_p95"] >= batch["ttft_p50"]
+    assert batch["agg_gen_tps"] is not None
+    assert batch["wall_s"] > 0
+    # Mean per request; the fake reports one completion token.
+    assert batch["out_tokens"] == 1
+
+
+def test_probe_batch_counts_failed_requests():
+    batch = speed.probe_batch(
+        "http://127.0.0.1:1/v1", "test-model", "fake-key", 10, concurrency=2
+    )
+    assert batch["requests"] == 0
+    assert batch["errors"] == 2
+    assert batch["ttft_p50"] is None
+    assert batch["agg_gen_tps"] is None
+
+
+def test_run_probe_concurrency_and_iterations(fake_server):
+    import os
+    import tempfile
+
+    key_file = tempfile.NamedTemporaryFile(delete=False)
+    key_file.write(b"fake-key")
+    key_file.close()
+    models = [
+        {
+            "name": "m",
+            "base_url": fake_server,
+            "model_id": "test-model",
+            "api_key_file": key_file.name,
+        }
+    ]
+    try:
+        results = speed.run_probe(
+            models, context_sizes=[1000], concurrency=[1, 2], iterations=2
+        )
+    finally:
+        os.unlink(key_file.name)
+
+    assert len(results) == 4
+    assert {r["concurrency"] for r in results} == {1, 2}
+    # One batch_id per (ctx, concurrency), shared by its iterations.
+    per_batch: dict[str, int] = {}
+    for result in results:
+        per_batch[result["batch_id"]] = per_batch.get(result["batch_id"], 0) + 1
+    assert sorted(per_batch.values()) == [2, 2]
+    assert all(r["ctx_tokens"] == 1000 for r in results)
+    assert all(r["ts"] for r in results)
+
+
+def test_init_schema_adds_speed_batch_columns(tmp_path):
+    import sqlite3
+
+    import db
+
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE speed (id INTEGER PRIMARY KEY AUTOINCREMENT, model TEXT, "
+        "ts TEXT, ctx_tokens INTEGER, ttft_s REAL, prefill_tps REAL, "
+        "gen_tps REAL, out_tokens INTEGER)"
+    )
+    conn.commit()
+    conn.close()
+
+    conn = db.connect(path)
+    try:
+        db.init_schema(conn)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(speed)")}
+    finally:
+        db.close(conn)
+    assert {
+        "concurrency",
+        "batch_id",
+        "ttft_p50",
+        "ttft_p95",
+        "agg_gen_tps",
+        "requests",
+        "errors",
+        "wall_s",
+    } <= columns

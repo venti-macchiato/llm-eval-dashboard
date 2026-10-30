@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS runs (
     input_tokens INTEGER,
     output_tokens INTEGER,
     duration_s REAL,
-    log_path TEXT
+    log_path TEXT,
+    meta TEXT,
+    error_samples INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS speed (
@@ -28,13 +30,69 @@ CREATE TABLE IF NOT EXISTS speed (
     ttft_s REAL,
     prefill_tps REAL,
     gen_tps REAL,
-    out_tokens INTEGER
+    out_tokens INTEGER,
+    concurrency INTEGER,
+    batch_id TEXT,
+    ttft_p50 REAL,
+    ttft_p95 REAL,
+    agg_gen_tps REAL,
+    requests INTEGER,
+    errors INTEGER,
+    wall_s REAL
+);
+
+CREATE TABLE IF NOT EXISTS prompt_runs (
+    run_id TEXT PRIMARY KEY,
+    model TEXT,
+    ts TEXT,
+    completed TEXT,
+    tests INTEGER,
+    passed INTEGER,
+    errors INTEGER,
+    repeats INTEGER,
+    meta TEXT
+);
+
+CREATE TABLE IF NOT EXISTS prompt_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT,
+    model TEXT,
+    ts TEXT,
+    test_id TEXT,
+    title TEXT,
+    category TEXT,
+    repeat INTEGER,
+    passed INTEGER,
+    output TEXT,
+    detail TEXT,
+    latency_s REAL,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    error TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_model ON runs(model);
 CREATE INDEX IF NOT EXISTS idx_runs_task ON runs(task);
 CREATE INDEX IF NOT EXISTS idx_speed_model ON speed(model);
+CREATE INDEX IF NOT EXISTS idx_prompt_results_run ON prompt_results(run_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_results_model ON prompt_results(model);
 """
+
+# Columns added after the first release. Applied to existing databases so
+# upgrading does not require deleting the local DB.
+_MIGRATIONS = {
+    "runs": [("meta", "TEXT"), ("error_samples", "INTEGER")],
+    "speed": [
+        ("concurrency", "INTEGER"),
+        ("batch_id", "TEXT"),
+        ("ttft_p50", "REAL"),
+        ("ttft_p95", "REAL"),
+        ("agg_gen_tps", "REAL"),
+        ("requests", "INTEGER"),
+        ("errors", "INTEGER"),
+        ("wall_s", "REAL"),
+    ],
+}
 
 
 def connect(db_path: str | Path) -> sqlite3.Connection:
@@ -52,9 +110,18 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, columns in _MIGRATIONS.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in columns:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+
+
 def init_schema(conn: sqlite3.Connection) -> None:
-    """Create the schema if the tables do not yet exist."""
+    """Create the schema if needed and apply additive migrations."""
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
 
 
