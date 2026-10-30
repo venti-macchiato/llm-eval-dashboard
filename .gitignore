@@ -9,6 +9,11 @@ venv/
 .pytest_cache/
 .cache/
 
+# Frontend
+frontend/node_modules/
+static/dist/
+frontend/*.tsbuildinfo
+
 # Local data
 bench.db
 

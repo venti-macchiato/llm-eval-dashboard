@@ -1,0 +1,593 @@
+/* Compare sheet + configuration diff layer.
+   Owned by the compare slice: `.cx-*` only.
+   Global tokens and utilities live in base.css / components.css — never edit
+   those from here; add view-scoped tokens under :root / [data-theme="dark"]. */
+
+:root {
+  /* run identity */
+  --cx-a: var(--c1);
+  --cx-b: var(--c2);
+
+  /* delta semantics */
+  --cx-pos: var(--neon-emerald);
+  --cx-neg: var(--neon-rose);
+  --cx-pos-soft: color-mix(in srgb, var(--neon-emerald) 11%, transparent);
+  --cx-neg-soft: color-mix(in srgb, var(--neon-rose) 11%, transparent);
+  --cx-pos-line: color-mix(in srgb, var(--neon-emerald) 38%, transparent);
+  --cx-neg-line: color-mix(in srgb, var(--neon-rose) 38%, transparent);
+
+  /* warning treatment shared by the noise notice and the config diff rows */
+  --cx-warn: var(--warning);
+  --cx-warn-ink: color-mix(in srgb, var(--warning) 74%, var(--fg));
+  --cx-warn-soft: color-mix(in srgb, var(--warning) 10%, transparent);
+  --cx-warn-line: color-mix(in srgb, var(--warning) 40%, transparent);
+  --cx-warn-mark: color-mix(in srgb, var(--warning) 16%, transparent);
+  --cx-diff-wash: color-mix(in srgb, var(--warning) 7%, transparent);
+
+  --cx-snippet-bg: var(--term-bg);
+  --cx-snippet-fg: var(--term-fg);
+  --cx-snippet-line: var(--term-border);
+}
+
+:root[data-theme="dark"] {
+  --cx-pos-soft: color-mix(in srgb, var(--neon-emerald) 14%, transparent);
+  --cx-neg-soft: color-mix(in srgb, var(--neon-rose) 14%, transparent);
+  --cx-pos-line: color-mix(in srgb, var(--neon-emerald) 44%, transparent);
+  --cx-neg-line: color-mix(in srgb, var(--neon-rose) 44%, transparent);
+
+  --cx-warn-ink: var(--warning);
+  --cx-warn-soft: color-mix(in srgb, var(--warning) 12%, transparent);
+  --cx-warn-line: color-mix(in srgb, var(--warning) 46%, transparent);
+  --cx-warn-mark: color-mix(in srgb, var(--warning) 20%, transparent);
+  --cx-diff-wash: color-mix(in srgb, var(--warning) 9%, transparent);
+}
+
+/* ------------------------------------------------------ selection workspace */
+
+.cx-compare { min-width: 0; }
+
+.cx-picker {
+  width: 100%;
+  overflow: hidden;
+}
+
+.cx-picker::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--cx-a) 80%, transparent),
+    color-mix(in srgb, var(--cx-b) 80%, transparent)
+  );
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.cx-picker-head {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  padding: 12px 18px;
+}
+
+.cx-picker-headline {
+  gap: 10px;
+  min-width: 0;
+}
+
+.cx-picker-kicker {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.cx-picker-count {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cx-picker-body {
+  padding: 14px 16px 16px;
+}
+
+.cx-picker-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.cx-slot {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 12px 11px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+}
+
+.cx-slot-a { border-left-color: var(--cx-a); }
+.cx-slot-b { border-left-color: var(--cx-b); }
+
+.cx-slot-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cx-slot-head .field-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cx-slot-key {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.cx-slot-a .cx-slot-key {
+  color: var(--cx-a);
+  background: color-mix(in srgb, var(--cx-a) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cx-a) 34%, transparent);
+}
+
+.cx-slot-b .cx-slot-key {
+  color: var(--cx-b);
+  background: color-mix(in srgb, var(--cx-b) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cx-b) 34%, transparent);
+}
+
+/* one wide control per run: the workspace half-width, never a fixed narrow box */
+.cx-select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 9px 11px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0;
+  background: var(--panel-solid);
+  cursor: pointer;
+}
+
+.cx-select option {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.cx-slot-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 7px;
+  min-height: 15px;
+  font-size: 11px;
+}
+
+.cx-meta-model {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.cx-meta-sep { color: var(--faint); }
+
+.cx-meta-task {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.cx-meta-config {
+  padding: 0 7px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.cx-meta-missing {
+  color: var(--faint);
+  font-size: 10.5px;
+  font-style: italic;
+}
+
+.cx-vs {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--panel-solid);
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  box-shadow: var(--shadow-md);
+}
+
+@media (max-width: 1180px) {
+  .cx-picker-grid { grid-template-columns: minmax(0, 1fr); }
+  .cx-vs { justify-self: center; }
+}
+
+/* ------------------------------------------------------------ metric sheet */
+
+.cx-metrics-table td.cx-delta {
+  min-width: 92px;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.cx-delta-chip {
+  display: inline-block;
+  min-width: 54px;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+  text-align: right;
+}
+
+.cx-delta.is-key .cx-delta-chip {
+  font-weight: 700;
+  font-size: 12.5px;
+}
+
+.cx-delta.is-key .cx-delta-chip.is-pos,
+.cx-delta.is-key .cx-delta-chip.is-neg {
+  text-shadow: var(--glow);
+}
+
+.cx-delta-chip.is-pos {
+  border-color: var(--cx-pos-line);
+  background: var(--cx-pos-soft);
+  color: var(--cx-pos);
+}
+
+.cx-delta-chip.is-neg {
+  border-color: var(--cx-neg-line);
+  background: var(--cx-neg-soft);
+  color: var(--cx-neg);
+}
+
+.cx-delta-chip.is-flat {
+  border-color: var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.cx-delta-chip.is-na {
+  color: var(--faint);
+  font-weight: 500;
+}
+
+/* supporting metrics keep the sign colour but drop the pill chrome */
+.cx-delta:not(.is-key) .cx-delta-chip {
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.cx-metric-note {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------ noise verdict */
+
+.cx-noise {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+}
+
+.cx-noise-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.cx-noise-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cx-noise-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.cx-noise-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.cx-noise-warn {
+  border-color: var(--cx-warn-line);
+  background: var(--cx-warn-soft);
+  box-shadow: inset 2px 0 0 0 var(--cx-warn);
+}
+
+.cx-noise-warn .cx-noise-mark {
+  background: var(--cx-warn-mark);
+  color: var(--cx-warn);
+}
+
+.cx-noise-warn .cx-noise-text {
+  color: var(--cx-warn-ink);
+  font-weight: 600;
+}
+
+.cx-noise-ok {
+  border-color: var(--cx-pos-line);
+  background: var(--cx-pos-soft);
+  box-shadow: inset 2px 0 0 0 var(--cx-pos);
+}
+
+.cx-noise-ok .cx-noise-mark {
+  background: var(--cx-pos-soft);
+  color: var(--cx-pos);
+}
+
+.cx-noise-ok .cx-noise-text {
+  color: var(--cx-pos);
+  font-weight: 600;
+}
+
+.cx-noise-note { box-shadow: inset 2px 0 0 0 var(--border-strong); }
+
+.cx-noise-note .cx-noise-mark {
+  background: var(--panel-2);
+  color: var(--faint);
+}
+
+.cx-noise-note .cx-noise-text { color: var(--muted); }
+
+/* ------------------------------------------------- declared configuration */
+
+.cx-cfg-table td.cx-cfg-label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.cx-cfg-table td.cx-cfg-val {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.cx-cfg-row.is-diff td {
+  background: var(--cx-diff-wash);
+  transition: background 0.12s ease;
+}
+
+.cx-cfg-row.is-diff:hover td {
+  background: color-mix(in srgb, var(--cx-warn) 13%, transparent);
+}
+
+.cx-cfg-row.is-diff td.cx-cfg-label {
+  position: relative;
+  padding-left: 24px;
+  color: var(--cx-warn-ink);
+}
+
+.cx-cfg-row.is-diff td.cx-cfg-label::before {
+  content: "Δ";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--cx-warn);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.cx-cfg-row.is-diff td.cx-cfg-val {
+  color: var(--cx-warn-ink);
+  font-weight: 600;
+}
+
+.cx-cfg-row.is-diff td:first-child {
+  box-shadow: inset 2px 0 0 0 var(--cx-warn);
+}
+
+.cx-cfg-row:not(.is-diff) td.cx-cfg-val { color: var(--fg); }
+
+.cx-cfg-verdict {
+  margin-top: 10px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.cx-cfg-verdict.is-warn {
+  border-color: var(--cx-warn-line);
+  background: var(--cx-warn-soft);
+  box-shadow: inset 2px 0 0 0 var(--cx-warn);
+  color: var(--cx-warn-ink);
+  font-weight: 600;
+}
+
+.cx-cfg-verdict.is-ok {
+  border-color: var(--cx-pos-line);
+  background: var(--cx-pos-soft);
+  box-shadow: inset 2px 0 0 0 var(--cx-pos);
+  color: var(--cx-pos);
+}
+
+.cx-cfg-verdict.is-idle {
+  background: var(--panel-2);
+  color: var(--muted);
+}
+
+.cx-cfg-note {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------- empty config help */
+
+.cx-cfg-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px dashed var(--cx-warn-line);
+  border-radius: var(--r-sm);
+  background: var(--cx-warn-soft);
+}
+
+.cx-cfg-empty-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.cx-cfg-empty-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--cx-warn-line);
+  border-radius: 50%;
+  background: var(--cx-warn-mark);
+  color: var(--cx-warn);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.cx-cfg-empty-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cx-cfg-empty-title {
+  color: var(--cx-warn-ink);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.cx-cfg-empty-body {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.cx-cfg-snippet {
+  margin: 0;
+  padding: 11px 13px;
+  border: 1px solid var(--cx-snippet-line);
+  border-radius: var(--r-sm);
+  background: var(--cx-snippet-bg);
+  color: var(--cx-snippet-fg);
+  font-size: 11.5px;
+  line-height: 1.65;
+  overflow-x: auto;
+}
+
+.cx-cfg-snippet code {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+
+.cx-cfg-steps {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.cx-cfg-steps li + li { margin-top: 3px; }
+
+.cx-cfg-steps .mono {
+  color: var(--fg);
+  font-size: 10.5px;
+  font-weight: 600;
+}

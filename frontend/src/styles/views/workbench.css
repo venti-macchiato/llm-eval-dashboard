@@ -1,0 +1,766 @@
+/* Run-eval workbench: controls, task composer, live job console.
+   Owned by the workbench slice: `.wb-*` only.
+   Global tokens and utilities live in base.css / components.css — never edit
+   those from here; add view-scoped tokens under :root / [data-theme="dark"]. */
+
+:root {
+  /* control geometry */
+  --wb-control-h: 32px;
+
+  /* signal inks */
+  --wb-ok-ink: var(--neon-emerald);
+  --wb-ok-line: color-mix(in srgb, var(--neon-emerald) 46%, transparent);
+  --wb-ok-bg: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--neon-emerald) 14%, transparent),
+    color-mix(in srgb, var(--neon-cyan) 12%, transparent)
+  );
+  --wb-ok-glow: 0 0 14px -4px color-mix(in srgb, var(--neon-emerald) 55%, transparent);
+  --wb-warn-bg: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--neon-amber) 14%, transparent),
+    color-mix(in srgb, var(--neon-amber) 6%, transparent)
+  );
+  --wb-warn-line: color-mix(in srgb, var(--neon-amber) 42%, transparent);
+
+  /* progress rail */
+  --wb-track: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--fg) 6%, transparent),
+    color-mix(in srgb, var(--fg) 12%, transparent)
+  );
+  --wb-grad-a: #4f46e5;
+  --wb-grad-b: var(--neon-cyan);
+  --wb-lead-core: #eef4ff;
+  --wb-lead-glow: rgba(79, 70, 229, 0.55);
+
+  /* terminal chrome (always dark by design) */
+  --wb-term-hair: rgba(255, 255, 255, 0.06);
+  --wb-term-shadow: 0 18px 40px -30px rgba(15, 23, 42, 0.65);
+}
+
+:root[data-theme="dark"] {
+  --wb-ok-ink: var(--neon-emerald);
+  --wb-ok-line: color-mix(in srgb, var(--neon-emerald) 52%, transparent);
+  --wb-ok-bg: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--neon-emerald) 18%, transparent),
+    color-mix(in srgb, var(--neon-cyan) 12%, transparent)
+  );
+  --wb-ok-glow: 0 0 18px -3px color-mix(in srgb, var(--neon-emerald) 65%, transparent);
+  --wb-warn-line: color-mix(in srgb, var(--neon-amber) 46%, transparent);
+
+  --wb-grad-a: #6366f1;
+  --wb-grad-b: var(--neon-cyan);
+  --wb-lead-core: #f2fdff;
+  --wb-lead-glow: rgba(99, 102, 241, 0.8);
+
+  --wb-term-hair: rgba(255, 255, 255, 0.07);
+  --wb-term-shadow: 0 20px 46px -26px rgba(0, 0, 0, 0.95);
+}
+
+/* ------------------------------------------------------- setup control bar */
+
+.wb-bar {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel-2);
+  box-shadow: inset 0 1px 0 0 var(--hairline);
+}
+.wb-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0 14px auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
+  pointer-events: none;
+}
+
+.wb-bar-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.wb-bar-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  min-height: 12px;
+}
+.wb-bar-label .field-label {
+  flex: none;
+  white-space: nowrap;
+}
+.wb-bar-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--faint);
+  font-size: 10.5px;
+  line-height: 1.25;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-bar-cell .input,
+.wb-bar-cell .select {
+  width: 100%;
+  height: var(--wb-control-h);
+}
+.wb-bar-model {
+  flex: 1 1 190px;
+  max-width: 300px;
+}
+.wb-bar-suite {
+  flex: 1 1 160px;
+  max-width: 260px;
+}
+.wb-bar-source {
+  flex: 0 0 auto;
+}
+.wb-bar-num {
+  flex: 0 1 76px;
+  min-width: 64px;
+}
+.wb-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.wb-bar-actions .btn {
+  height: var(--wb-control-h);
+}
+.wb-run {
+  min-width: 116px;
+}
+.wb-bar-caption {
+  margin-top: 10px;
+  max-width: 86ch;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------- source segmented chips */
+
+.wb-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--wb-control-h);
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--panel-solid);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.07);
+}
+.wb-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
+}
+.wb-seg-btn:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--panel-2);
+}
+.wb-seg-btn.on {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-fg);
+  font-weight: 650;
+  box-shadow: 0 2px 12px -4px color-mix(in srgb, var(--accent) 80%, transparent);
+}
+.wb-seg-btn.on:hover:not(:disabled) {
+  color: var(--accent-fg);
+  background: var(--accent);
+}
+.wb-seg-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.wb-seg-btn.on:disabled {
+  opacity: 0.72;
+}
+
+/* -------------------------------------------------------- custom composer */
+
+.wb-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+.wb-custom-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 12px;
+}
+.wb-custom-head .wb-bar-num {
+  flex: 0 0 120px;
+  width: 120px;
+  max-width: 120px;
+}
+.wb-custom-hint {
+  padding-bottom: 8px;
+}
+.wb-selected {
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+/* ------------------------------------------------------------- task cards */
+
+.wb-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+}
+.wb-suite-cards {
+  margin-top: 12px;
+}
+.wb-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 11px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  box-shadow: inset 0 1px 0 0 var(--hairline);
+}
+.wb-card-static {
+  cursor: default;
+}
+.wb-card-action {
+  appearance: none;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease,
+    transform 0.08s ease;
+}
+.wb-card-action:hover:not(:disabled) {
+  border-color: var(--accent-line);
+  background: var(--panel-3);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 0 var(--hairline),
+    0 14px 26px -22px color-mix(in srgb, var(--fg) 60%, transparent);
+}
+.wb-card-action:active:not(:disabled) {
+  transform: translateY(0);
+}
+.wb-card-action:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.wb-card-action:disabled:not(.is-blocked) {
+  cursor: default;
+  opacity: 0.5;
+}
+.wb-card.is-blocked {
+  border-color: var(--wb-warn-line);
+}
+.wb-card-action.is-blocked:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.wb-card.is-blocked .wb-card-title {
+  color: var(--muted);
+}
+.wb-card.is-blocked:hover:not(:disabled) {
+  border-color: var(--wb-warn-line);
+  background: var(--panel-2);
+  transform: none;
+  box-shadow: inset 0 1px 0 0 var(--hairline);
+}
+
+.wb-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.wb-card-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+}
+.wb-card-cta {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  line-height: 1.7;
+}
+.wb-card.is-blocked .wb-card-cta {
+  border-color: var(--wb-warn-line);
+  background: var(--wb-warn-bg);
+  color: var(--warning);
+}
+.wb-card-id {
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wb-card-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+/* requirement pills */
+
+.wb-reqs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+.wb-req {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px 1px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+.wb-req::before {
+  content: "";
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: var(--glow);
+}
+.wb-req.ok {
+  color: var(--wb-ok-ink);
+  border-color: var(--wb-ok-line);
+  background: var(--wb-ok-bg);
+  box-shadow: var(--wb-ok-glow);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--wb-ok-ink) 40%, transparent);
+}
+.wb-req.blocked {
+  color: var(--warning);
+  border-color: var(--wb-warn-line);
+  background: var(--wb-warn-bg);
+  box-shadow: 0 0 14px -4px color-mix(in srgb, var(--warning) 55%, transparent);
+}
+
+/* blocked alert layer */
+
+.wb-card-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 7px;
+  padding: 6px 8px;
+  border: 1px solid var(--wb-warn-line);
+  border-radius: var(--r-xs);
+  background: var(--wb-warn-bg);
+  color: var(--warning);
+  font-size: 10.5px;
+  line-height: 1.45;
+  box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--warning) 70%, transparent);
+}
+.wb-card-alert-line {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------------------- picker */
+
+.wb-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wb-search {
+  width: 100%;
+  max-width: 380px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.wb-picker-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wb-cat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.wb-cat-count {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 10px;
+  letter-spacing: var(--track-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------- override / preflight */
+
+.wb-advanced {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.wb-advanced > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11.5px;
+  cursor: pointer;
+  list-style: none;
+}
+.wb-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.wb-advanced > summary::before {
+  content: "+";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+}
+.wb-advanced[open] > summary::before {
+  content: "–";
+}
+.wb-advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 12px;
+  margin-top: 10px;
+}
+
+.wb-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--wb-warn-line);
+  border-radius: var(--r-sm);
+  background: var(--wb-warn-bg);
+  color: var(--warning);
+}
+.wb-alert-mark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warning);
+  box-shadow: 0 0 10px 1px color-mix(in srgb, var(--warning) 65%, transparent);
+}
+.wb-alert-body {
+  flex: 1 1 260px;
+  min-width: 0;
+  color: var(--warning);
+  line-height: 1.5;
+}
+.wb-alert .wb-alert-action {
+  flex: none;
+  color: var(--warning);
+  border-color: var(--wb-warn-line);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  box-shadow: none;
+}
+.wb-alert .wb-alert-action:hover {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 58%, transparent);
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+}
+.wb-notice {
+  margin-top: 10px;
+  color: var(--success);
+}
+
+/* ------------------------------------------------------- job progress */
+
+.wb-job {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wb-job-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.wb-job-error {
+  color: var(--error);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--error) 40%, transparent);
+}
+
+.wb-progress {
+  position: relative;
+  height: 6px;
+  margin-top: 2px;
+  border-radius: 999px;
+  background: var(--wb-track);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22), inset 0 0 0 1px var(--border);
+}
+.wb-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--wb-grad-a), var(--wb-grad-b));
+  box-shadow: 0 0 14px -2px color-mix(in srgb, var(--wb-grad-b) 65%, transparent);
+  transition: width 0.35s ease;
+}
+.wb-progress-lead {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--wb-lead-core) 0 26%,
+    var(--wb-grad-b) 54%,
+    color-mix(in srgb, var(--wb-grad-a) 85%, transparent) 72%,
+    transparent 78%
+  );
+  box-shadow: 0 0 8px 1px var(--wb-lead-glow),
+    0 0 16px 4px color-mix(in srgb, var(--wb-grad-b) 45%, transparent);
+  animation: wb-lead-pulse 1.9s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes wb-lead-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 8px 1px var(--wb-lead-glow),
+      0 0 16px 4px color-mix(in srgb, var(--wb-grad-b) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 14px 3px var(--wb-lead-glow),
+      0 0 26px 8px color-mix(in srgb, var(--wb-grad-b) 55%, transparent);
+  }
+}
+
+.wb-results {
+  margin-top: 4px;
+}
+
+/* --------------------------------------------------------- log terminal */
+
+.wb-console {
+  margin-top: 4px;
+  border: 1px solid var(--term-border);
+  border-radius: var(--r-md);
+  background: var(--term-bg);
+  overflow: hidden;
+  box-shadow: var(--wb-term-shadow), inset 0 1px 0 var(--wb-term-hair);
+}
+.wb-console-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border-bottom: 1px solid var(--term-border);
+  background: linear-gradient(180deg, var(--wb-term-hair), transparent);
+}
+.wb-console-dots {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+}
+.wb-console-dots i {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--term-dim);
+  opacity: 0.35;
+}
+.wb-console-dots i:nth-child(1) {
+  background: var(--term-rose);
+  opacity: 0.8;
+}
+.wb-console-dots i:nth-child(2) {
+  background: var(--term-emerald);
+  opacity: 0.6;
+}
+.wb-console-dots i:nth-child(3) {
+  background: var(--term-cyan);
+  opacity: 0.6;
+}
+.wb-console-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--term-dim);
+  font-size: 10px;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wb-console-count {
+  flex: none;
+  margin-left: auto;
+  color: var(--term-dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.wb-console-body {
+  margin: 0;
+  padding: 10px 12px 11px;
+  max-height: 280px;
+  overflow: auto;
+  background: radial-gradient(120% 100% at 0% 0%, var(--wb-term-hair), transparent 60%);
+  color: var(--term-fg);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.wb-log-line {
+  position: relative;
+  padding-left: 14px;
+  border-radius: 3px;
+}
+.wb-log-line::before {
+  content: "›";
+  position: absolute;
+  top: 0;
+  left: 1px;
+  color: var(--term-dim);
+  opacity: 0.5;
+}
+.wb-log-line.is-err {
+  color: var(--term-rose);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--term-rose) 14%, transparent),
+    transparent 72%
+  );
+  text-shadow: 0 0 12px color-mix(in srgb, var(--term-rose) 45%, transparent);
+}
+.wb-log-line.is-err::before {
+  content: "!";
+  color: var(--term-rose);
+  opacity: 0.95;
+}
+.wb-log-line.is-ok {
+  color: var(--term-emerald);
+}
+.wb-log-line.is-ok::before {
+  content: "$";
+  color: var(--term-emerald);
+  opacity: 0.8;
+}
+
+/* -------------------------------------------------------------- narrow */
+
+@media (max-width: 860px) {
+  .wb-bar-model,
+  .wb-bar-suite {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+  .wb-bar-num {
+    flex: 1 1 90px;
+    width: auto;
+  }
+  .wb-bar-actions {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+  .wb-bar-actions .btn {
+    flex: 1 1 auto;
+  }
+  .wb-advanced-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .wb-cards {
+    grid-template-columns: 1fr;
+  }
+  .wb-bar-source {
+    flex: 1 1 100%;
+  }
+  .wb-seg {
+    width: 100%;
+  }
+  .wb-seg-btn {
+    flex: 1 1 auto;
+  }
+  .wb-search {
+    max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-progress-lead {
+    animation: none;
+  }
+}

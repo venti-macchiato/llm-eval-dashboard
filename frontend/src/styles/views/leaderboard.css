@@ -1,0 +1,489 @@
+/* Leaderboard + Variants matrix layer.
+   Owned by the matrix slice: `.lb-*` (leaderboard) and `.vr-*` (variants).
+   Global tokens and utilities live in base.css / components.css — never edit
+   those from here; add view-scoped tokens under :root / [data-theme="dark"].
+
+   The matrix is a dense engineering grid: every metric is an isolated cell
+   plate, the sticky row head is an opaque slab with a directional edge shadow,
+   and score plates carry the `scoreTint` colour as a semantic underlay beneath
+   a scrim so the compact sub-metric stack always stays legible. */
+
+/* ------------------------------------------------------ scoped tokens */
+
+:root {
+  /* Sticky row-head plate. The dark theme uses the exact slab #0f131c; the
+     light theme gets an opaque, slightly cool plate so the head still reads
+     as a slab over the white panel. */
+  --lb-rowhead-bg: #f7f9fd;
+  --vr-rowhead-bg: var(--lb-rowhead-bg);
+  --lb-rowhead-edge: rgba(15, 23, 42, 0.3);
+  --vr-rowhead-edge: var(--lb-rowhead-edge);
+
+  /* Cell plates: base wash, sheen, and the scrim that sits under the
+     sub-metric stack. */
+  --lb-cell-bg: #f8fafc;
+  --vr-cell-bg: var(--lb-cell-bg);
+  --lb-cell-border: rgba(15, 23, 42, 0.17);
+  --vr-cell-border: var(--lb-cell-border);
+  --lb-cell-sheen: rgba(255, 255, 255, 0.35);
+  --vr-cell-sheen: var(--lb-cell-sheen);
+  --lb-cell-scrim: color-mix(in srgb, var(--panel-solid) 72%, transparent);
+  --vr-cell-scrim: var(--lb-cell-scrim);
+
+  --lb-avg-bg: #eef2f8;
+  --vr-baseline-rail: var(--accent);
+
+  --lb-grid-line: rgba(15, 23, 42, 0.065);
+  --vr-grid-line: var(--lb-grid-line);
+  --lb-sub-ink: color-mix(in srgb, var(--fg) 68%, var(--muted));
+  --vr-sub-ink: var(--lb-sub-ink);
+
+  /* Delta chip aura, driven by the regression tone. */
+  --vr-delta-up-glow: 0 0 0 1px color-mix(in srgb, var(--neon-emerald) 34%, transparent),
+    0 0 12px -3px color-mix(in srgb, var(--neon-emerald) 45%, transparent);
+  --vr-delta-down-glow: 0 0 0 1px color-mix(in srgb, var(--neon-rose) 34%, transparent),
+    0 0 12px -3px color-mix(in srgb, var(--neon-rose) 45%, transparent);
+}
+
+:root[data-theme="dark"] {
+  --lb-rowhead-bg: #0f131c;
+  --vr-rowhead-bg: var(--lb-rowhead-bg);
+  --lb-rowhead-edge: rgba(0, 0, 0, 0.85);
+  --vr-rowhead-edge: var(--lb-rowhead-edge);
+
+  --lb-cell-bg: rgba(255, 255, 255, 0.035);
+  --vr-cell-bg: var(--lb-cell-bg);
+  --lb-cell-border: rgba(255, 255, 255, 0.11);
+  --vr-cell-border: var(--lb-cell-border);
+  --lb-cell-sheen: rgba(255, 255, 255, 0.06);
+  --vr-cell-sheen: var(--lb-cell-sheen);
+  --lb-cell-scrim: color-mix(in srgb, var(--panel-solid) 70%, transparent);
+  --vr-cell-scrim: var(--lb-cell-scrim);
+
+  --lb-avg-bg: rgba(255, 255, 255, 0.055);
+  --vr-baseline-rail: var(--accent);
+
+  --lb-grid-line: rgba(255, 255, 255, 0.055);
+  --vr-grid-line: var(--lb-grid-line);
+  --lb-sub-ink: color-mix(in srgb, var(--fg) 72%, var(--muted));
+  --vr-sub-ink: var(--lb-sub-ink);
+
+  --vr-delta-up-glow: 0 0 0 1px color-mix(in srgb, var(--neon-emerald) 48%, transparent),
+    0 0 16px -4px color-mix(in srgb, var(--neon-emerald) 72%, transparent);
+  --vr-delta-down-glow: 0 0 0 1px color-mix(in srgb, var(--neon-rose) 48%, transparent),
+    0 0 16px -4px color-mix(in srgb, var(--neon-rose) 72%, transparent);
+}
+
+/* ------------------------------------------------------- matrix shell */
+
+.lb-wrap,
+.vr-wrap {
+  overflow: auto;
+  padding: 16px;
+  background-color: var(--panel-2);
+  background-image: radial-gradient(var(--lb-grid-line) 0.5px, transparent 0.5px);
+  background-size: 9px 9px;
+  border-top: 1px solid var(--border);
+}
+
+.vr-wrap {
+  background-image: radial-gradient(var(--vr-grid-line) 0.5px, transparent 0.5px);
+}
+
+table.lb-matrix,
+table.vr-matrix {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 6px 5px;
+}
+
+table.vr-matrix {
+  /* Wider vertical gutter clusters each variant row into its own block. */
+  border-spacing: 6px 10px;
+}
+
+/* sticky header band */
+table.lb-matrix thead th,
+table.vr-matrix thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 7px 8px;
+  border-radius: var(--r-xs);
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--lb-rowhead-bg);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  text-align: center;
+  white-space: nowrap;
+}
+
+table.vr-matrix thead th {
+  background: var(--vr-rowhead-bg);
+}
+
+table.lb-matrix th.lb-col-head,
+table.vr-matrix th.vr-col-head {
+  color: var(--muted);
+}
+
+/* sticky row heads: opaque slab + directional edge shadow */
+table.lb-matrix th.row-head,
+table.vr-matrix th.row-head {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--lb-rowhead-bg);
+  box-shadow: 1px 0 0 0 var(--border-strong),
+    10px 0 16px -12px var(--lb-rowhead-edge);
+}
+
+table.vr-matrix th.row-head {
+  background: var(--vr-rowhead-bg);
+  box-shadow: 1px 0 0 0 var(--border-strong),
+    10px 0 16px -12px var(--vr-rowhead-edge);
+}
+
+table.lb-matrix thead th.row-head,
+table.vr-matrix thead th.row-head {
+  z-index: 4;
+}
+
+table.lb-matrix tbody th.row-head,
+table.vr-matrix tbody th.row-head {
+  padding: 8px 10px;
+  vertical-align: middle;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--fg);
+}
+
+table.lb-matrix tbody th.row-head {
+  min-width: 132px;
+  max-width: 240px;
+}
+
+table.vr-matrix tbody th.row-head {
+  min-width: 168px;
+  max-width: 248px;
+  white-space: normal;
+}
+
+table.lb-matrix tbody tr:hover th.row-head,
+table.vr-matrix tbody tr:hover th.row-head {
+  background: color-mix(in srgb, var(--lb-rowhead-bg) 92%, var(--accent) 8%);
+}
+
+/* leftover 1px seam between the sticky plate and the scrolling grid */
+table.lb-matrix tbody th.row-head::after,
+table.vr-matrix tbody th.row-head::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -1px;
+  width: 1px;
+  background: var(--border-strong);
+}
+
+.lb-row-id,
+.vr-row-id {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+
+.vr-row-id {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.vr-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.vr-row-config {
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.vr-row--baseline th.row-head {
+  box-shadow: inset 3px 0 0 0 var(--vr-baseline-rail),
+    1px 0 0 0 var(--border-strong), 10px 0 16px -12px var(--vr-rowhead-edge);
+}
+
+.vr-baseline-badge {
+  font-size: 8.5px;
+  padding: 1px 6px;
+  letter-spacing: 0.08em;
+}
+
+/* ------------------------------------------------------- metric plates */
+
+table.lb-matrix .cell,
+table.vr-matrix .cell {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 1px;
+  min-width: 118px;
+  min-height: 68px;
+  padding: 7px 9px 6px;
+  border: 1px solid var(--lb-cell-border);
+  border-radius: var(--r-sm);
+  background-color: var(--lb-cell-bg);
+  background-image: linear-gradient(
+      180deg,
+      transparent 30%,
+      var(--lb-cell-scrim) 82%
+    ),
+    linear-gradient(150deg, var(--lb-cell-sheen), transparent 52%);
+  box-shadow: inset 0 1px 0 0 var(--hairline);
+  text-align: center;
+  color: var(--fg);
+  overflow: hidden;
+}
+
+table.vr-matrix .cell {
+  min-width: 118px;
+  min-height: 88px;
+  padding: 7px 9px;
+  border-color: var(--vr-cell-border);
+  background-color: var(--vr-cell-bg);
+  background-image: linear-gradient(
+      180deg,
+      transparent 28%,
+      var(--vr-cell-scrim) 84%
+    ),
+    linear-gradient(150deg, var(--vr-cell-sheen), transparent 52%);
+  /* The Δ chip carries a directional aura; let it bleed into the gutter
+     instead of being sliced by the plate edge. */
+  overflow: visible;
+}
+
+.lb-cell-score,
+.vr-cell-score {
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+
+.lb-cell .cell-sub,
+.vr-cell .cell-sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--lb-sub-ink);
+  opacity: 1;
+}
+
+.vr-cell .cell-sub {
+  color: var(--vr-sub-ink);
+}
+
+.lb-cell .cell-sub + .cell-sub,
+.vr-cell .cell-sub + .cell-sub {
+  margin-top: 0;
+}
+
+table.lb-matrix .cell.empty,
+table.vr-matrix .cell.empty {
+  align-items: center;
+  justify-content: center;
+  background-color: var(--panel-2);
+  background-image: none;
+  border-style: dashed;
+  border-color: var(--border);
+  box-shadow: none;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+table.lb-matrix td,
+table.vr-matrix td {
+  vertical-align: middle;
+}
+
+table.lb-matrix tbody tr:hover .cell,
+table.vr-matrix tbody tr:hover .cell {
+  border-color: var(--border-strong);
+}
+
+/* ------------------------------------------------- leaderboard average */
+
+table.lb-matrix th.lb-avg-head {
+  padding-right: 10px;
+  text-align: right;
+}
+
+table.lb-matrix td.lb-avg-cell {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--lb-avg-bg);
+  text-align: right;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.lb-avg-value {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+
+.lb-avg-count {
+  display: block;
+  margin-top: 1px;
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  color: var(--lb-sub-ink);
+}
+
+/* -------------------------------------------------------- delta chips */
+
+.vr-delta {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 2px 7px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.vr-delta-value {
+  font-weight: 700;
+}
+
+.vr-delta-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 13px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 20%, transparent);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.vr-delta--ns {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 55%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+.vr-delta--up {
+  color: var(--neon-emerald);
+  border-color: color-mix(in srgb, var(--neon-emerald) 55%, transparent);
+  background: color-mix(in srgb, var(--neon-emerald) 12%, transparent);
+  box-shadow: var(--vr-delta-up-glow);
+}
+
+.vr-delta--down {
+  color: var(--neon-rose);
+  border-color: color-mix(in srgb, var(--neon-rose) 55%, transparent);
+  background: color-mix(in srgb, var(--neon-rose) 12%, transparent);
+  box-shadow: var(--vr-delta-down-glow);
+}
+
+.vr-delta--na {
+  color: var(--muted);
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background: transparent;
+}
+
+/* ------------------------------------------------- variants chrome */
+
+.vr-family-bar {
+  padding: 12px 16px;
+}
+
+.vr-family-chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: -0.01em;
+}
+
+.vr-baseline-field {
+  min-width: 220px;
+}
+
+.vr-baseline-select {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.vr-legend {
+  padding: 14px 16px;
+}
+
+.vr-legend-text {
+  line-height: 1.65;
+  max-width: 112ch;
+}
+
+.vr-legend-ns {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.vr-legend-better {
+  color: var(--neon-emerald);
+  font-weight: 600;
+}
+
+.vr-legend-worse {
+  color: var(--neon-rose);
+  font-weight: 600;
+}
